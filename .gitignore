@@ -13,11 +13,12 @@ __pycache__/
 venv/
 env/
 
-# Local database files
+# Local database files and datasets
 routegenie.db
 *.db
 *.sqlite
 *.sqlite3
+*.csv
 
 # Tooling and editor files
 .pytest_cache/

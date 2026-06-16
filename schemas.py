@@ -12,6 +12,8 @@ class StoreOut(BaseModel):
     store_type: str
     last_visited_date: str
     base_priority: int
+    stock_depletion_rate: float
+    closed_days: str
 
     model_config = ConfigDict(from_attributes=True)
 

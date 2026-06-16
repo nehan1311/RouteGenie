@@ -14,6 +14,8 @@ class Store(Base):
     store_type = Column(String)
     last_visited_date = Column(String)
     base_priority = Column(Integer)
+    stock_depletion_rate = Column(Float)
+    closed_days = Column(String)
 
 
 class Rep(Base):
