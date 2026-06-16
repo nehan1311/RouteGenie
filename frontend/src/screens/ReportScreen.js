@@ -10,14 +10,15 @@ export default function ReportScreen() {
   const [repId, setRepId] = useState(null);
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   async function loadReps() {
     try {
       const repList = await api.getReps();
       setReps(repList);
       if (repList.length > 0) setRepId(repList[0].id);
-    } catch (error) {
-      Alert.alert("Failed to load reps", error.message);
+    } catch (err) {
+      setError(err.message);
     }
   }
 
@@ -60,13 +61,22 @@ export default function ReportScreen() {
 
       <Card>
         <SectionTitle>Rep</SectionTitle>
-        <Picker selectedValue={repId} onValueChange={(value) => setRepId(value)}>
+        <Picker
+          selectedValue={repId}
+          onValueChange={(value) => setRepId(value)}
+          style={{ color: "#0F172A" }}
+        >
+          {reps.length === 0 && (
+            <Picker.Item label="Loading reps..." value={null} />
+          )}
           {reps.map((rep) => (
             <Picker.Item key={rep.id} label={rep.name} value={rep.id} />
           ))}
         </Picker>
         <Button title={loading ? "Generating..." : "Generate Report"} onPress={generateReport} color={colors.primary} />
       </Card>
+
+      {error ? <EmptyState text={`Error: ${error}`} /> : null}
 
       {loading ? <LoadingState text="Generating AI summary..." /> : null}
 

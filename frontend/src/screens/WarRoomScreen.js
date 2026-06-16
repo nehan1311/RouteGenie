@@ -14,17 +14,19 @@ function statusColor(status) {
 export default function WarRoomScreen() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [fromRepId, setFromRepId] = useState("");
   const [toRepId, setToRepId] = useState("");
   const [storeIdsRaw, setStoreIdsRaw] = useState("");
 
   async function refresh() {
     setLoading(true);
+    setError("");
     try {
       const warRoom = await api.getWarRoom();
       setData(warRoom);
-    } catch (error) {
-      Alert.alert("Failed to load War Room", error.message);
+    } catch (err) {
+      setError(err.message);
     } finally {
       setLoading(false);
     }
@@ -60,6 +62,13 @@ export default function WarRoomScreen() {
   }, []);
 
   const reps = data?.reps || [];
+  // Safe fallback region — Mumbai
+  const mapRegion = {
+    latitude: reps.length > 0 ? reps[0].current_lat : 19.1136,
+    longitude: reps.length > 0 ? reps[0].current_lng : 72.8697,
+    latitudeDelta: 0.08,
+    longitudeDelta: 0.08,
+  };
 
   return (
     <ScrollView style={sharedStyles.screen}>
@@ -69,33 +78,28 @@ export default function WarRoomScreen() {
       <Button title="Refresh Live Status" onPress={refresh} color={colors.primary} />
 
       {loading ? <LoadingState text="Loading war room..." /> : null}
+      {error ? <EmptyState text={`Error: ${error}`} /> : null}
 
-      {reps.length === 0 && !loading ? (
-        <EmptyState text="No rep status available." />
-      ) : (
+      {!loading && !error && (
         <Card>
           <SectionTitle>Live Map</SectionTitle>
-          <MapView
-            style={styles.map}
-            initialRegion={{
-              latitude: reps[0]?.current_lat || 19.1136,
-              longitude: reps[0]?.current_lng || 72.8697,
-              latitudeDelta: 0.08,
-              longitudeDelta: 0.08,
-            }}
-          >
+          <MapView style={styles.map} initialRegion={mapRegion}>
             {reps.map((rep) => (
               <Marker
                 key={rep.rep_id}
                 coordinate={{ latitude: rep.current_lat, longitude: rep.current_lng }}
                 pinColor={statusColor(rep.status)}
                 title={rep.rep_name}
-                description={`${rep.status} • ${rep.completion_pct}%`}
+                description={`${rep.status} \u2022 ${rep.completion_pct}%`}
               />
             ))}
           </MapView>
         </Card>
       )}
+
+      {!loading && !error && reps.length === 0 ? (
+        <EmptyState text="No rep routes active today. Generate a route first." />
+      ) : null}
 
       <Card>
         <SectionTitle>Rep Status Cards</SectionTitle>

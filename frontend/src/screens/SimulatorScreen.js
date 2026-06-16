@@ -13,14 +13,15 @@ export default function SimulatorScreen() {
   const [delayMinutes, setDelayMinutes] = useState("30");
   const [minOrderValue, setMinOrderValue] = useState("5000");
   const [result, setResult] = useState(null);
+  const [error, setError] = useState("");
 
   async function loadReps() {
     try {
       const repData = await api.getReps();
       setReps(repData);
       if (repData.length > 0) setRepId(repData[0].id);
-    } catch (error) {
-      Alert.alert("Failed to load reps", error.message);
+    } catch (err) {
+      setError(err.message);
     }
   }
 
@@ -56,7 +57,14 @@ export default function SimulatorScreen() {
 
       <Card>
         <SectionTitle>Scenario Controls</SectionTitle>
-        <Picker selectedValue={repId} onValueChange={(value) => setRepId(value)}>
+        <Picker
+          selectedValue={repId}
+          onValueChange={(value) => setRepId(value)}
+          style={{ color: "#0F172A" }}
+        >
+          {reps.length === 0 && (
+            <Picker.Item label="Loading reps..." value={null} />
+          )}
           {reps.map((rep) => (
             <Picker.Item key={rep.id} label={rep.name} value={rep.id} />
           ))}
@@ -97,7 +105,9 @@ export default function SimulatorScreen() {
         <Button title="Run Simulation" onPress={runSimulation} color={colors.primary} />
       </Card>
 
-      {!result ? (
+      {error ? <EmptyState text={`Error: ${error}`} /> : null}
+
+      {!result && !error ? (
         <EmptyState text="Run a scenario to view impact deltas." />
       ) : (
         <Card>
