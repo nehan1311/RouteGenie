@@ -1,4 +1,5 @@
 import json
+import random
 from datetime import date, timedelta
 
 from database import SessionLocal, create_tables
@@ -17,17 +18,17 @@ def seed_data():
         reps = [
             Rep(
                 name="Raj",
-                avg_visit_time_minutes=20,
+                avg_visit_time_minutes=12,
                 best_time_window_start=9,
-                best_time_window_end=13,
-                area_speed_factor=1.1,
+                best_time_window_end=11,
+                area_speed_factor=0.9,
                 dna_profile=json.dumps(
                     {
                         "conversion_rates": {
-                            "grocery": 0.45,
-                            "pharmacy": 0.30,
-                            "electronics": 0.20,
-                            "general": 0.35,
+                            "kirana": 0.60,
+                            "medical": 0.25,
+                            "supermarket": 0.30,
+                            "distributor": 0.20
                         }
                     }
                 ),
@@ -36,82 +37,121 @@ def seed_data():
                 name="Priya",
                 avg_visit_time_minutes=15,
                 best_time_window_start=10,
-                best_time_window_end=14,
-                area_speed_factor=1.3,
+                best_time_window_end=12,
+                area_speed_factor=1.0,
                 dna_profile=json.dumps(
                     {
                         "conversion_rates": {
-                            "grocery": 0.30,
-                            "pharmacy": 0.50,
-                            "electronics": 0.40,
-                            "general": 0.35,
+                            "kirana": 0.20,
+                            "medical": 0.35,
+                            "supermarket": 0.65,
+                            "distributor": 0.40
                         }
                     }
                 ),
             ),
             Rep(
                 name="Anil",
-                avg_visit_time_minutes=25,
-                best_time_window_start=8,
-                best_time_window_end=12,
-                area_speed_factor=0.9,
+                avg_visit_time_minutes=18,
+                best_time_window_start=11,
+                best_time_window_end=13,
+                area_speed_factor=1.2,
                 dna_profile=json.dumps(
                     {
                         "conversion_rates": {
-                            "grocery": 0.35,
-                            "pharmacy": 0.25,
-                            "electronics": 0.50,
-                            "general": 0.40,
+                            "kirana": 0.15,
+                            "medical": 0.70,
+                            "supermarket": 0.25,
+                            "distributor": 0.30
                         }
                     }
                 ),
             ),
         ]
 
-        today = date.today()
-        store_specs = [
-            ("Andheri Fresh Mart", 19.1136, 72.8697, 1200, "grocery", 2, 3),
-            ("Andheri Wellness Pharmacy", 19.1197, 72.8464, 1800, "pharmacy", 4, 2),
-            ("Vijay Electronics Andheri", 19.1214, 72.8531, 4600, "electronics", 6, 3),
-            ("Metro General Store", 19.1105, 72.8720, 950, "general", 8, 1),
-            ("Bandra Bazaar Grocery", 19.0596, 72.8295, 1500, "grocery", 5, 2),
-            ("Bandra Care Chemist", 19.0642, 72.8357, 2200, "pharmacy", 9, 3),
-            ("Linking Road Electronics", 19.0669, 72.8339, 5000, "electronics", 12, 2),
-            ("Hill Road General Traders", 19.0551, 72.8404, 1100, "general", 15, 1),
-            ("Kurla Daily Needs", 19.0726, 72.8845, 800, "grocery", 7, 1),
-            ("Kurla Medico", 19.0691, 72.8798, 1700, "pharmacy", 11, 2),
-            ("Phoenix Tech Corner", 19.0863, 72.8888, 4300, "electronics", 3, 3),
-            ("Kurla General Depot", 19.0759, 72.8827, 1300, "general", 14, 2),
-            ("Vile Parle Fresh Foods", 19.0997, 72.8445, 1400, "grocery", 2, 3),
-            ("Parle Pharmacy Plus", 19.1013, 72.8498, 2100, "pharmacy", 10, 2),
-            ("Parle Gadget Hub", 19.1046, 72.8519, 4800, "electronics", 13, 3),
-            ("Parle General Stores", 19.0969, 72.8534, 1000, "general", 6, 1),
-            ("Jogeshwari Super Grocer", 19.1364, 72.8485, 1600, "grocery", 4, 2),
-            ("Jogeshwari Life Care", 19.1392, 72.8421, 1900, "pharmacy", 8, 3),
-            ("Jogeshwari Electronics Point", 19.1430, 72.8552, 4500, "electronics", 11, 2),
-            ("Jogeshwari General Mart", 19.1325, 72.8507, 900, "general", 15, 1),
-        ]
+        # Generate 20 stores deterministically using same algorithm as build_routegenie_db.py
+        lat_min, lat_max = 18.545, 18.575
+        lng_min, lng_max = 73.785, 73.815
+        
+        random.seed(42)
 
-        stores = [
-            Store(
-                name=name,
-                lat=lat,
-                lng=lng,
-                avg_order_value=avg_order_value,
-                store_type=store_type,
-                last_visited_date=(today - timedelta(days=days_ago)).isoformat(),
-                base_priority=base_priority,
+        def gen_coordinate():
+            lat = random.uniform(lat_min, lat_max)
+            lng = random.uniform(lng_min, lng_max)
+            return round(lat, 5), round(lng, 5)
+
+        store_types_to_generate = (
+            ["kirana"] * 8 +
+            ["medical"] * 5 +
+            ["supermarket"] * 4 +
+            ["distributor"] * 3
+        )
+        
+        name_prefixes = {
+            "kirana": ["Aapla", "Shree", "Ganesh", "Sai", "Balaji", "Krishna", "Venkatesh", "Maruti", "Pooja", "Laxmi"],
+            "medical": ["Wellness", "Apollo", "Noble", "Plus", "Metropolis", "Care", "Life", "Jeevan", "Metikart"],
+            "supermarket": ["Reliance Smart", "D-Mart", "Star", "Dorabjee's", "Nature's Basket", "More", "Fresh Mart"],
+            "distributor": ["Maharashtra Traders", "Pune FMCG Wholesalers", "Western Pharma Dist", "Balaji Enterprises", "Sahyadri Distributors"]
+        }
+        
+        aov_by_type = {
+            "kirana": 1200.0,
+            "medical": 2200.0,
+            "supermarket": 4500.0,
+            "distributor": 12000.0
+        }
+        
+        closed_days_choices = ["Sunday", "None", "Sunday", "Monday", "None"]
+        stores = []
+        used_names = set()
+
+        for idx, stype in enumerate(store_types_to_generate, start=1):
+            lat, lng = gen_coordinate()
+            
+            prefix_pool = name_prefixes[stype]
+            prefix_idx = (idx * 7) % len(prefix_pool)
+            name = prefix_pool[prefix_idx]
+            while True:
+                if stype == "kirana":
+                    store_name = f"{name} Kirana & General Store"
+                elif stype == "medical":
+                    store_name = f"{name} Pharmacy & Wellness"
+                elif stype == "supermarket":
+                    store_name = f"{name} Supermarket" if "Mart" not in name and "Basket" not in name else name
+                else:
+                    store_name = name
+                    
+                if store_name not in used_names:
+                    used_names.add(store_name)
+                    break
+                name = name + f" {idx}"
+            
+            if stype == "kirana":
+                base_priority = 1
+            elif stype == "medical":
+                base_priority = 2
+            else:
+                base_priority = 3
+                
+            days_ago = 1 + (idx * 3) % 14
+            last_visited = (date.today() - timedelta(days=days_ago)).isoformat()
+            
+            depletion_rate = round(0.05 + ((idx * 13) % 16) * 0.01, 2)
+            closed_days = closed_days_choices[idx % len(closed_days_choices)]
+            
+            stores.append(
+                Store(
+                    name=store_name,
+                    lat=lat,
+                    lng=lng,
+                    avg_order_value=aov_by_type[stype],
+                    store_type=stype,
+                    last_visited_date=last_visited,
+                    base_priority=base_priority,
+                    stock_depletion_rate=depletion_rate,
+                    closed_days=closed_days
+                )
             )
-            for (
-                name,
-                lat,
-                lng,
-                avg_order_value,
-                store_type,
-                days_ago,
-                base_priority,
-            ) in store_specs
-        ]
 
         db.add_all(reps)
         db.add_all(stores)
