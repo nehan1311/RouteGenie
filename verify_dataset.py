@@ -210,9 +210,9 @@ def verify_database(db_path="./routegenie.db"):
     store_ids = set()
     store_types_in_db = set()
     
-    # Baner, Pune bounds check
-    baner_lat_min, baner_lat_max = 18.545, 18.575
-    baner_lng_min, baner_lng_max = 73.785, 73.815
+    # Andheri West, Mumbai bounds check
+    mumbai_lat_min, mumbai_lat_max = 19.1240, 19.1480
+    mumbai_lng_min, mumbai_lng_max = 72.8140, 72.8380
     
     for store in stores_data:
         s_id, s_name, s_lat, s_lng, s_aov, s_type, s_last_visit, s_priority, s_depletion, s_closed = store
@@ -224,9 +224,9 @@ def verify_database(db_path="./routegenie.db"):
             print_error(f"Store ID {s_id} ({s_name}): Coordinates are null!")
             has_errors = True
         else:
-            in_baner = (baner_lat_min <= s_lat <= baner_lat_max) and (baner_lng_min <= s_lng <= baner_lng_max)
-            if not in_baner:
-                print_error(f"Store ID {s_id} ({s_name}): Coordinates ({s_lat}, {s_lng}) are outside Baner, Pune bounds ({baner_lat_min}-{baner_lat_max}, {baner_lng_min}-{baner_lng_max})!")
+            in_mumbai = (mumbai_lat_min <= s_lat <= mumbai_lat_max) and (mumbai_lng_min <= s_lng <= mumbai_lng_max)
+            if not in_mumbai:
+                print_error(f"Store ID {s_id} ({s_name}): Coordinates ({s_lat}, {s_lng}) are outside Andheri West, Mumbai bounds ({mumbai_lat_min}-{mumbai_lat_max}, {mumbai_lng_min}-{mumbai_lng_max})!")
                 has_errors = True
                     
         # Verify AOV

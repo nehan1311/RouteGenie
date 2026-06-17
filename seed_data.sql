@@ -1,157 +1,91 @@
--- ==================================================
--- RouteGenie Seed Data SQL
--- ==================================================
+-- RouteGenie Seed Data
+-- Schema-verified: tested against actual DB schema (June 2026)
+-- Territory: Andheri West, Mumbai
+-- Reps: Raj, Priya, Anil | Stores: 20 | Visit logs: 30
 PRAGMA foreign_keys = ON;
+
 DELETE FROM visit_logs;
-DELETE FROM rep_conversion_rates;
-DELETE FROM rep_dna_profiles;
-DELETE FROM stores;
+DELETE FROM route_entries;
 DELETE FROM reps;
+DELETE FROM stores;
 
--- Insert Reps
-INSERT INTO reps (rep_id, name, phone, home_lat, home_lng, daily_target_visits) VALUES (1, 'Raj', '+91 98230 11111', 18.5592, 73.7931, 13);
-INSERT INTO reps (rep_id, name, phone, home_lat, home_lng, daily_target_visits) VALUES (2, 'Priya', '+91 98230 22222', 18.5605, 73.7895, 13);
-INSERT INTO reps (rep_id, name, phone, home_lat, home_lng, daily_target_visits) VALUES (3, 'Anil', '+91 98230 33333', 18.5578, 73.795, 13);
+-- ============================
+-- REPS
+-- best_time_window_start/end = hour integer (24h)
+-- dna_profile = JSON with conversion_rates per store_type
+-- ============================
+INSERT INTO reps (id, name, avg_visit_time_minutes, best_time_window_start, best_time_window_end, area_speed_factor, dna_profile) VALUES
+(1, 'Raj',   12, 9,  11, 0.9, '{"conversion_rates": {"kirana": 0.65, "medical": 0.25, "supermarket": 0.30, "distributor": 0.20}, "notes": "Experienced with small traditional retail outlets."}'),
+(2, 'Priya', 15, 10, 12, 1.0, '{"conversion_rates": {"kirana": 0.20, "medical": 0.35, "supermarket": 0.70, "distributor": 0.40}, "notes": "Specializes in large modern trade and supermarkets."}'),
+(3, 'Anil',  18, 11, 13, 1.2, '{"conversion_rates": {"kirana": 0.15, "medical": 0.75, "supermarket": 0.25, "distributor": 0.30}, "notes": "Strong background in pharma and medical stores."}');
 
--- Insert DNA Profiles
-INSERT INTO rep_dna_profiles (profile_id, rep_id, avg_visit_minutes, best_time_window_start, best_time_window_end, area_speed_factor, notes) VALUES (1, 1, 12, '09:00', '11:00', 0.9, 'Experienced with small traditional retail outlets.');
-INSERT INTO rep_dna_profiles (profile_id, rep_id, avg_visit_minutes, best_time_window_start, best_time_window_end, area_speed_factor, notes) VALUES (2, 2, 15, '10:00', '12:00', 1.0, 'Specializes in large modern trade and supermarkets.');
-INSERT INTO rep_dna_profiles (profile_id, rep_id, avg_visit_minutes, best_time_window_start, best_time_window_end, area_speed_factor, notes) VALUES (3, 3, 18, '11:00', '13:00', 1.2, 'Strong background in pharma and medical stores.');
+-- ============================
+-- STORES (20 stores in Andheri West, Mumbai)
+-- avg_order_value in INR derived from source FMCG dataset
+-- kirana=58963 | supermarket=43364 | medical=64343 | distributor=98138
+-- ============================
+INSERT INTO stores (id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES
+-- KIRANA (8 stores) base_priority = 1
+  (1,  'Maruti Kirana & General Store',    19.1423, 72.8363, 'kirana', 58963.89, 1, '2026-06-13', 0.13, 'Sunday'),
+  (2,  'Aapla Kirana Store',    19.1376, 72.8313, 'kirana', 58963.89, 1, '2026-06-10', 0.15, 'None'),
+  (3,  'Shree Ganesh Provision Store',    19.1405, 72.8337, 'kirana', 58963.89, 1, '2026-06-09', 0.12, 'Monday'),
+  (4,  'New Bombay General Stores',    19.1353, 72.8358, 'kirana', 58963.89, 1, '2026-06-14', 0.10, 'None'),
+  (5,  'Mumbai Bazaar Kirana',    19.1446, 72.8303, 'kirana', 58963.89, 1, '2026-06-08', 0.18, 'Sunday'),
+  (6,  'Laxmi Traders',    19.1388, 72.8370, 'kirana', 58963.89, 1, '2026-06-11', 0.14, 'None'),
+  (7,  'Om Sai Provision Mart',    19.1414, 72.8275, 'kirana', 58963.89, 1, '2026-06-07', 0.11, 'Monday'),
+  (8,  'Vitthal General Store',    19.1362, 72.8332, 'kirana', 58963.89, 1, '2026-06-12', 0.16, 'None'),
+-- SUPERMARKET (4 stores) base_priority = 3
+  (9,  'D-Mart Andheri',    19.1367, 72.8143, 'supermarket', 43364.15, 3, '2026-06-15', 0.08, 'None'),
+  (10,  'More Supermarket Andheri',    19.1397, 72.8202, 'supermarket', 43364.15, 3, '2026-06-14', 0.09, 'None'),
+  (11,  'Reliance Smart Andheri',    19.1345, 72.8241, 'supermarket', 43364.15, 3, '2026-06-13', 0.07, 'None'),
+  (12,  'Big Bazaar Andheri',    19.1324, 72.8185, 'supermarket', 43364.15, 3, '2026-06-12', 0.08, 'Monday'),
+-- MEDICAL (5 stores) base_priority = 2
+  (13,  'Apollo Pharmacy Andheri',    19.1378, 72.8295, 'medical', 64343.57, 2, '2026-06-15', 0.06, 'None'),
+  (14,  'MedPlus Andheri',    19.1408, 72.8231, 'medical', 64343.57, 2, '2026-06-11', 0.05, 'None'),
+  (15,  'Wellness Forever Andheri',    19.1358, 72.8347, 'medical', 64343.57, 2, '2026-06-15', 0.07, 'Sunday'),
+  (16,  'Sahyadri Medical Stores',    19.1423, 72.8259, 'medical', 64343.57, 2, '2026-06-09', 0.06, 'None'),
+  (17,  'Life Care Pharmacy',    19.1321, 72.8294, 'medical', 64343.57, 2, '2026-06-08', 0.08, 'Monday'),
+-- DISTRIBUTOR (3 stores) base_priority = 3
+  (18,  'Mumbai FMCG Distributors Pvt Ltd',    19.1333, 72.8205, 'distributor', 98138.58, 3, '2026-06-14', 0.05, 'None'),
+  (19,  'Western India Wholesale Hub',    19.1449, 72.8377, 'distributor', 98138.58, 3, '2026-06-10', 0.05, 'Sunday'),
+  (20,  'Andheri Trade & Supply Co.',    19.1386, 72.8170, 'distributor', 98138.58, 3, '2026-06-07', 0.05, 'None');
 
--- Insert Conversion Rates
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (1, 1, 'kirana', 0.65);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (2, 1, 'medical', 0.25);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (3, 1, 'supermarket', 0.3);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (4, 1, 'distributor', 0.2);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (5, 2, 'kirana', 0.2);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (6, 2, 'medical', 0.35);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (7, 2, 'supermarket', 0.7);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (8, 2, 'distributor', 0.4);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (9, 3, 'kirana', 0.15);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (10, 3, 'medical', 0.75);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (11, 3, 'supermarket', 0.25);
-INSERT INTO rep_conversion_rates (id, rep_id, store_type, conversion_rate) VALUES (12, 3, 'distributor', 0.3);
-
--- Insert Stores
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (1, 'Maruti Kirana & General Store', 18.56418, 73.78575, 'kirana', 58963.89, 1, '2026-06-13', 0.18, 'None');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (2, 'Venkatesh Kirana & General Store', 18.55325, 73.7917, 'kirana', 58963.89, 1, '2026-06-10', 0.15, 'Sunday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (3, 'Krishna Kirana & General Store', 18.56709, 73.8053, 'kirana', 58963.89, 1, '2026-06-07', 0.12, 'Monday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (4, 'Balaji Kirana & General Store', 18.57177, 73.78761, 'kirana', 58963.89, 1, '2026-06-04', 0.09, 'None');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (5, 'Sai Kirana & General Store', 18.55766, 73.78589, 'kirana', 58963.89, 1, '2026-06-15', 0.06, 'Sunday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (6, 'Ganesh Kirana & General Store', 18.55156, 73.80016, 'kirana', 58963.89, 1, '2026-06-12', 0.19, 'None');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (7, 'Shree Kirana & General Store', 18.5458, 73.79097, 'kirana', 58963.89, 1, '2026-06-09', 0.16, 'Sunday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (8, 'Aapla Kirana & General Store', 18.5645, 73.80135, 'kirana', 58963.89, 1, '2026-06-06', 0.13, 'Monday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (9, 'Plus Pharmacy & Wellness', 18.55161, 73.80268, 'medical', 64343.57, 2, '2026-06-03', 0.1, 'None');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (10, 'Wellness Pharmacy & Wellness', 18.56928, 73.78519, 'medical', 64343.57, 2, '2026-06-14', 0.07, 'Sunday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (11, 'Noble Pharmacy & Wellness', 18.56917, 73.80594, 'medical', 64343.57, 2, '2026-06-11', 0.2, 'None');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (12, 'Metropolis Pharmacy & Wellness', 18.55521, 73.78966, 'medical', 64343.57, 2, '2026-06-08', 0.17, 'Sunday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (13, 'Apollo Pharmacy & Wellness', 18.57372, 73.7951, 'medical', 64343.57, 2, '2026-06-05', 0.14, 'Monday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (14, 'Star Supermarket', 18.54778, 73.7879, 'supermarket', 43364.15, 3, '2026-06-16', 0.11, 'None');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (15, 'D-Mart', 18.57042, 73.80311, 'supermarket', 43364.15, 3, '2026-06-13', 0.08, 'Sunday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (16, 'Reliance Smart Supermarket', 18.56921, 73.80689, 'supermarket', 43364.15, 3, '2026-06-10', 0.05, 'None');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (17, 'Dorabjee's Supermarket', 18.56109, 73.81419, 'supermarket', 43364.15, 3, '2026-06-07', 0.18, 'Sunday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (18, 'Maharashtra Traders Distributors', 18.55636, 73.80156, 'distributor', 98138.58, 3, '2026-06-04', 0.15, 'Monday');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (19, 'Pune FMCG Distributors', 18.56988, 73.80356, 'distributor', 98138.58, 3, '2026-06-15', 0.12, 'None');
-INSERT INTO stores (store_id, name, lat, lng, store_type, avg_order_value, base_priority, last_visited_date, stock_depletion_rate, closed_days) VALUES (20, 'Western Pharma Distributors', 18.57085, 73.80232, 'distributor', 98138.58, 3, '2026-06-12', 0.09, 'Sunday');
-
--- Insert Visit Logs
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (1, 1, 18, '2023-01-01T09:00:00', 'sale', 60461.6, 'Pitched Greek Yogurt Plain (FarmJoy). Order placed for 355 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (2, 3, 10, '2023-01-01T10:07:00', 'sale', 281824.8, 'Pitched Shampoo Repair (PureLiva). Order placed for 596 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (3, 2, 16, '2023-01-01T11:14:00', 'sale', 17684.0, 'Pitched Potato Chips BBQ (CrunchMile). Order placed for 134 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (4, 2, 17, '2023-01-01T12:21:00', 'sale', 34120.0, 'Pitched Surface Cleaner (SparkShield). Order placed for 89 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (5, 3, 13, '2023-01-01T13:28:00', 'sale', 46304.8, 'Pitched Shampoo Repair (PureLiva). Order placed for 93 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (6, 2, 15, '2023-01-01T14:35:00', 'sale', 120675.2, 'Pitched Peanut Butter Creamy (PantryPeak). Order placed for 294 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (7, 1, 7, '2023-01-01T15:42:00', 'sale', 270638.4, 'Pitched Dishwash Liquid (HomeNest). Order placed for 884 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (8, 2, 17, '2023-01-01T16:49:00', 'sale', 45236.0, 'Pitched Laundry Detergent (HomeNest). Order placed for 75 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (9, 2, 14, '2023-01-01T17:56:00', 'sale', 59824.8, 'Pitched Protein Bar Cocoa (NutriBite). Order placed for 260 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (10, 1, 2, '2023-01-01T09:03:00', 'sale', 115856.0, 'Pitched Laundry Detergent (HomeNest). Order placed for 130 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (11, 2, 19, '2023-01-01T10:10:00', 'sale', 155543.2, 'Pitched Energy Drink Classic (FuelCore). Order placed for 635 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (12, 3, 20, '2023-01-01T11:17:00', 'sale', 309005.6, 'Pitched Granola Honey (MorningCo). Order placed for 700 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (13, 1, 18, '2023-01-01T12:24:00', 'sale', 41540.8, 'Pitched Sparkling Water Berry (AquaGlow). Order placed for 218 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (14, 1, 6, '2023-01-01T13:31:00', 'sale', 112836.8, 'Pitched Sparkling Water Lemon (AquaGlow). Order placed for 754 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (15, 1, 7, '2023-01-01T14:38:00', 'sale', 15855.2, 'Pitched Cereal Corn Flakes (PantryPeak). Order placed for 38 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (16, 2, 17, '2023-01-01T15:45:00', 'sale', 43678.4, 'Pitched Protein Bar Peanut (NutriBite). Order placed for 173 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (17, 3, 10, '2023-01-01T16:52:00', 'sale', 4438.4, 'Pitched Toothbrush Soft (BrightSmile). Order placed for 22 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (18, 3, 11, '2023-01-01T17:59:00', 'sale', 4603.2, 'Pitched Hand Soap Gentle (FreshNest). Order placed for 22 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (19, 2, 16, '2023-01-01T09:06:00', 'sale', 19765.6, 'Pitched Green Tea Bags (ZenLeaf). Order placed for 59 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (20, 3, 13, '2023-01-02T10:13:00', 'sale', 41370.4, 'Pitched Shampoo Repair (PureLiva). Order placed for 78 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (21, 3, 20, '2023-01-02T11:20:00', 'sale', 111143.2, 'Pitched Energy Drink Zero (FuelCore). Order placed for 469 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (22, 2, 15, '2023-01-02T12:27:00', 'sale', 44504.0, 'Pitched Energy Drink Zero (FuelCore). Order placed for 226 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (23, 1, 7, '2023-01-02T13:34:00', 'sale', 13314.4, 'Pitched Yogurt Cup Strawberry (FarmJoy). Order placed for 73 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (24, 3, 12, '2023-01-02T14:41:00', 'sale', 156458.4, 'Pitched Toothpaste Mint (BrightSmile). Order placed for 764 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (25, 2, 14, '2023-01-02T15:48:00', 'sale', 16331.2, 'Pitched Potato Chips BBQ (CrunchMile). Order placed for 123 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (26, 1, 2, '2023-01-02T16:55:00', 'sale', 72798.4, 'Pitched Surface Cleaner (SparkShield). Order placed for 295 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (27, 1, 3, '2023-01-02T17:02:00', 'sale', 119552.0, 'Pitched Sparkling Water Lemon (AquaGlow). Order placed for 685 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (28, 3, 11, '2023-01-02T09:09:00', 'sale', 3593.6, 'Pitched Hand Soap Gentle (FreshNest). Order placed for 15 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (29, 2, 19, '2023-01-02T10:16:00', 'sale', 173980.8, 'Pitched Instant Coffee Gold (RoastTrail). Order placed for 262 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (30, 3, 13, '2023-01-02T11:23:00', 'sale', 152842.4, 'Pitched Conditioner Smooth (PureLiva). Order placed for 376 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (31, 1, 7, '2023-01-02T12:30:00', 'sale', 22296.0, 'Pitched Energy Drink Zero (FuelCore). Order placed for 60 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (32, 3, 10, '2023-01-02T13:37:00', 'sale', 78420.0, 'Pitched Hand Soap Gentle (FreshNest). Order placed for 358 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (33, 3, 20, '2023-01-02T14:44:00', 'sale', 147063.2, 'Pitched Cereal Corn Flakes (PantryPeak). Order placed for 429 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (34, 1, 2, '2023-01-03T15:51:00', 'sale', 6392.8, 'Pitched Sparkling Water Berry (AquaGlow). Order placed for 32 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (35, 1, 3, '2023-01-03T16:58:00', 'sale', 48623.2, 'Pitched Energy Drink Classic (FuelCore). Order placed for 225 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (36, 1, 4, '2023-01-03T17:05:00', 'sale', 22804.0, 'Pitched Tissue Pack (Softora). Order placed for 91 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (37, 3, 10, '2023-01-03T09:12:00', 'sale', 35744.8, 'Pitched Toothbrush Soft (BrightSmile). Order placed for 178 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (38, 1, 6, '2023-01-03T10:19:00', 'sale', 151190.4, 'Pitched Chocolate Cookies (Biscora). Order placed for 648 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (39, 3, 12, '2023-01-03T11:26:00', 'sale', 6860.8, 'Pitched Toothbrush Soft (BrightSmile). Order placed for 40 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (40, 1, 8, '2023-01-03T12:33:00', 'sale', 49232.0, 'Pitched Green Tea Bags (ZenLeaf). Order placed for 166 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (41, 1, 1, '2023-01-03T13:40:00', 'sale', 35240.0, 'Pitched Energy Drink Classic (FuelCore). Order placed for 102 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (42, 3, 10, '2023-01-03T14:47:00', 'sale', 97542.4, 'Pitched Toothpaste Mint (BrightSmile). Order placed for 475 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (43, 1, 18, '2023-01-03T15:54:00', 'sale', 50003.2, 'Pitched Energy Drink Classic (FuelCore). Order placed for 264 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (44, 2, 17, '2023-01-03T16:01:00', 'sale', 154894.4, 'Pitched Instant Coffee Gold (RoastTrail). Order placed for 222 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (45, 1, 5, '2023-01-03T17:08:00', 'sale', 8084.0, 'Pitched Cereal Corn Flakes (PantryPeak). Order placed for 20 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (46, 2, 15, '2023-01-03T09:15:00', 'sale', 25510.4, 'Pitched Chocolate Cookies (Biscora). Order placed for 132 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (47, 2, 16, '2023-01-03T10:22:00', 'sale', 28694.4, 'Pitched Chocolate Cookies (Biscora). Order placed for 118 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (48, 3, 20, '2023-01-03T11:29:00', 'sale', 136366.4, 'Pitched Protein Bar Peanut (NutriBite). Order placed for 538 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (49, 2, 14, '2023-01-03T12:36:00', 'sale', 41059.2, 'Pitched Surface Cleaner (SparkShield). Order placed for 111 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (50, 2, 15, '2023-01-03T13:43:00', 'sale', 43767.2, 'Pitched Dishwash Liquid (HomeNest). Order placed for 184 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (51, 1, 3, '2023-01-03T14:50:00', 'sale', 29717.6, 'Pitched Energy Drink Classic (FuelCore). Order placed for 85 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (52, 2, 17, '2023-01-03T15:57:00', 'sale', 36874.4, 'Pitched Dishwash Liquid (HomeNest). Order placed for 101 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (53, 2, 14, '2023-01-03T16:04:00', 'sale', 57523.2, 'Pitched Chocolate Cookies (Biscora). Order placed for 238 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (54, 1, 6, '2023-01-03T17:11:00', 'sale', 16500.0, 'Pitched Energy Drink Classic (FuelCore). Order placed for 56 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (55, 1, 18, '2023-01-03T09:18:00', 'sale', 147018.4, 'Pitched Trail Mix Original (TrailNest). Order placed for 430 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (56, 1, 8, '2023-01-03T10:25:00', 'sale', 2164.8, 'Pitched Sparkling Water Berry (AquaGlow). Order placed for 13 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (57, 1, 1, '2023-01-03T11:32:00', 'sale', 14547.2, 'Pitched Surface Cleaner (SparkShield). Order placed for 37 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (58, 1, 2, '2023-01-04T12:39:00', 'sale', 140256.0, 'Pitched Paper Towels (Softora). Order placed for 358 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (59, 3, 12, '2023-01-04T13:46:00', 'sale', 251214.4, 'Pitched Conditioner Smooth (PureLiva). Order placed for 486 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (60, 1, 4, '2023-01-04T14:53:00', 'sale', 24572.0, 'Pitched Granola Honey (MorningCo). Order placed for 65 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (61, 1, 18, '2023-01-04T15:00:00', 'sale', 154395.2, 'Pitched Dishwash Liquid (HomeNest). Order placed for 541 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (62, 1, 6, '2023-01-04T16:07:00', 'sale', 10394.4, 'Pitched Trail Mix Original (TrailNest). Order placed for 28 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (63, 2, 16, '2023-01-04T17:14:00', 'sale', 51827.2, 'Pitched Sparkling Water Berry (AquaGlow). Order placed for 243 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (64, 1, 18, '2023-01-04T09:21:00', 'sale', 42438.4, 'Pitched Sparkling Water Lemon (AquaGlow). Order placed for 284 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (65, 2, 14, '2023-01-04T10:28:00', 'sale', 13405.6, 'Pitched Greek Yogurt Plain (FarmJoy). Order placed for 72 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (66, 1, 2, '2023-01-04T11:35:00', 'sale', 43028.8, 'Pitched Instant Coffee Gold (RoastTrail). Order placed for 79 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (67, 1, 18, '2023-01-04T12:42:00', 'sale', 135183.2, 'Pitched Trail Mix Original (TrailNest). Order placed for 444 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (68, 1, 4, '2023-01-04T13:49:00', 'sale', 10967.2, 'Pitched Potato Chips Sea Salt (CrunchMile). Order placed for 75 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (69, 1, 5, '2023-01-04T14:56:00', 'sale', 48010.4, 'Pitched Potato Chips Sea Salt (CrunchMile). Order placed for 279 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (70, 3, 13, '2023-01-04T15:03:00', 'sale', 46257.6, 'Pitched Hand Soap Gentle (FreshNest). Order placed for 170 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (71, 1, 7, '2023-01-04T16:10:00', 'sale', 30585.6, 'Pitched Oats Wholegrain (MorningCo). Order placed for 97 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (72, 3, 20, '2023-01-04T17:17:00', 'sale', 59842.4, 'Pitched Potato Chips BBQ (CrunchMile). Order placed for 356 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (73, 1, 1, '2023-01-04T09:24:00', 'sale', 4370.4, 'Pitched Protein Bar Cocoa (NutriBite). Order placed for 18 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (74, 2, 15, '2023-01-04T10:31:00', 'sale', 18932.8, 'Pitched Potato Chips Sea Salt (CrunchMile). Order placed for 112 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (75, 3, 13, '2023-01-04T11:38:00', 'sale', 104452.8, 'Pitched Body Wash Citrus (FreshNest). Order placed for 355 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (76, 2, 17, '2023-01-04T12:45:00', 'sale', 64633.6, 'Pitched Peanut Butter Creamy (PantryPeak). Order placed for 144 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (77, 2, 14, '2023-01-04T13:52:00', 'sale', 65720.8, 'Pitched Glass Cleaner (SparkShield). Order placed for 175 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (78, 2, 15, '2023-01-04T14:59:00', 'sale', 21448.0, 'Pitched Potato Chips Sea Salt (CrunchMile). Order placed for 127 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (79, 1, 7, '2023-01-05T15:06:00', 'sale', 22494.4, 'Pitched Cereal Corn Flakes (PantryPeak). Order placed for 73 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (80, 1, 8, '2023-01-05T16:13:00', 'sale', 62712.8, 'Pitched Paper Towels (Softora). Order placed for 176 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (81, 1, 1, '2023-01-05T17:20:00', 'sale', 9844.8, 'Pitched Energy Drink Classic (FuelCore). Order placed for 33 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (82, 1, 2, '2023-01-05T09:27:00', 'sale', 154182.4, 'Pitched Glass Cleaner (SparkShield). Order placed for 638 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (83, 1, 3, '2023-01-05T10:34:00', 'sale', 166732.0, 'Pitched Green Tea Bags (ZenLeaf). Order placed for 681 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (84, 3, 12, '2023-01-05T11:41:00', 'sale', 61699.2, 'Pitched Shampoo Repair (PureLiva). Order placed for 117 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (85, 1, 5, '2023-01-05T12:48:00', 'sale', 10969.6, 'Pitched Sparkling Water Lemon (AquaGlow). Order placed for 65 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (86, 1, 6, '2023-01-05T13:55:00', 'sale', 21635.2, 'Pitched Greek Yogurt Plain (FarmJoy). Order placed for 91 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (87, 1, 7, '2023-01-05T14:02:00', 'sale', 81531.2, 'Pitched Energy Drink Zero (FuelCore). Order placed for 308 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (88, 1, 8, '2023-01-05T15:09:00', 'sale', 37543.2, 'Pitched Green Tea Bags (ZenLeaf). Order placed for 90 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (89, 1, 1, '2023-01-05T16:16:00', 'sale', 24454.4, 'Pitched Granola Honey (MorningCo). Order placed for 48 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (90, 1, 2, '2023-01-05T17:23:00', 'sale', 13018.4, 'Pitched Energy Drink Classic (FuelCore). Order placed for 43 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (91, 2, 16, '2023-01-05T09:30:00', 'sale', 30270.4, 'Pitched Chocolate Cookies (Biscora). Order placed for 167 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (92, 1, 4, '2023-01-05T10:37:00', 'sale', 23330.4, 'Pitched Paper Towels (Softora). Order placed for 50 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (93, 2, 14, '2023-01-05T11:44:00', 'sale', 82206.4, 'Pitched Granola Honey (MorningCo). Order placed for 261 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (94, 1, 18, '2023-01-05T12:51:00', 'sale', 137257.6, 'Pitched Glass Cleaner (SparkShield). Order placed for 431 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (95, 2, 16, '2023-01-05T13:58:00', 'sale', 8293.6, 'Pitched Potato Chips Sea Salt (CrunchMile). Order placed for 68 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (96, 2, 17, '2023-01-05T14:05:00', 'sale', 42783.2, 'Pitched Instant Coffee Gold (RoastTrail). Order placed for 74 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (97, 1, 1, '2023-01-05T15:12:00', 'sale', 8699.2, 'Pitched Potato Chips Sea Salt (CrunchMile). Order placed for 50 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (98, 1, 2, '2023-01-06T16:19:00', 'sale', 31400.8, 'Pitched Protein Bar Peanut (NutriBite). Order placed for 105 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (99, 1, 3, '2023-01-06T17:26:00', 'sale', 3916.0, 'Pitched Yogurt Cup Strawberry (FarmJoy). Order placed for 29 units.');
-INSERT INTO visit_logs (log_id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES (100, 3, 13, '2023-01-06T09:33:00', 'sale', 18446.4, 'Pitched Hand Soap Gentle (FreshNest). Order placed for 98 units.');
+-- ============================
+-- VISIT LOGS (30 historical visits)
+-- Covers all 3 reps and a mix of outcomes for report generation realism
+-- ============================
+INSERT INTO visit_logs (id, rep_id, store_id, visited_at, outcome, revenue, notes) VALUES
+-- Raj (kirana specialist)
+(1,  1, 1,  '2026-06-13T09:15:00', 'order_placed', 61200.00, 'Pitched Sunfeast biscuits and Maggi noodles. Order placed for 80 units.'),
+(2,  1, 2,  '2026-06-10T10:05:00', 'order_placed', 54800.00, 'Pitched Surf Excel and Vim. Order placed for 65 units.'),
+(3,  1, 3,  '2026-06-09T09:40:00', 'closed',            0.00, 'Store closed - Monday. Will reschedule.'),
+(4,  1, 4,  '2026-06-14T09:20:00', 'order_placed', 59500.00, 'Pitched Colgate and Dettol. Order placed for 72 units.'),
+(5,  1, 5,  '2026-06-08T10:30:00', 'no_answer',         0.00, 'Owner not available. Left product catalog.'),
+(6,  1, 6,  '2026-06-11T09:55:00', 'order_placed', 62100.00, 'Pitched Parle-G and Real juice. Order placed for 90 units.'),
+(7,  1, 7,  '2026-06-07T10:15:00', 'order_placed', 57300.00, 'Pitched Horlicks and Boost. Order placed for 55 units.'),
+(8,  1, 8,  '2026-06-12T09:35:00', 'skipped',           0.00, 'Owner requested visit next week.'),
+-- Priya (supermarket specialist)
+(9,  2, 9,  '2026-06-15T10:10:00', 'order_placed', 45200.00, 'Pitched PureLiva shampoo range. Order placed for 120 units.'),
+(10, 2, 10, '2026-06-14T10:45:00', 'order_placed', 41800.00, 'Pitched BrightSmile toothpaste. Order placed for 95 units.'),
+(11, 2, 11, '2026-06-13T11:00:00', 'order_placed', 44600.00, 'Pitched FreshNest body wash. Order placed for 110 units.'),
+(12, 2, 12, '2026-06-12T10:20:00', 'closed',            0.00, 'Store closed for audit. Rescheduled to Thursday.'),
+(13, 2, 1,  '2026-06-10T11:30:00', 'no_answer',         0.00, 'Manager unavailable. Left samples.'),
+(14, 2, 18, '2026-06-14T10:00:00', 'order_placed', 95000.00, 'Bulk order negotiated for Surf Excel and Comfort. 200 units.'),
+(15, 2, 20, '2026-06-12T11:15:00', 'order_placed',102400.00, 'Quarterly restocking order. Mixed SKUs across 3 brands.'),
+-- Anil (medical specialist)
+(16, 3, 13, '2026-06-15T11:05:00', 'order_placed', 68400.00, 'Pitched PureLiva Repair shampoo (pharma line). Order placed for 73 units.'),
+(17, 3, 14, '2026-06-11T11:40:00', 'order_placed', 61200.00, 'Pitched BrightSmile Mint toothpaste. Order placed for 99 units.'),
+(18, 3, 15, '2026-06-10T12:00:00', 'closed',            0.00, 'Store closed Sunday. Marked for Monday revisit.'),
+(19, 3, 16, '2026-06-09T11:20:00', 'order_placed', 64800.00, 'Pitched FreshNest Citrus body wash. Order placed for 361 units bulk.'),
+(20, 3, 17, '2026-06-08T11:55:00', 'order_placed', 59700.00, 'Pitched vitamin supplements range. Order placed for 48 units.'),
+(21, 3, 13, '2026-06-08T12:10:00', 'order_placed', 71500.00, 'Repeat visit. Upsold OTC wellness range. 85 units.'),
+(22, 3, 19, '2026-06-10T11:00:00', 'order_placed', 96200.00, 'Distributor restocking. Pharma + personal care mix.'),
+(23, 3, 4,  '2026-06-09T12:30:00', 'no_answer',         0.00, 'Owner out for lunch. Revisit scheduled.'),
+(24, 3, 7,  '2026-06-07T11:45:00', 'order_placed', 55800.00, 'Pitched health drink range. Order placed for 60 units.'),
+-- Mixed cross-rep logs
+(25, 1, 9,  '2026-06-11T09:00:00', 'order_placed', 38900.00, 'Cross-territory coverage. Snacks and beverages. 50 units.'),
+(26, 2, 16, '2026-06-09T10:30:00', 'order_placed', 67200.00, 'Medical channel expansion visit. 78 units.'),
+(27, 3, 11, '2026-06-08T11:00:00', 'skipped',           0.00, 'Queue too long. Rescheduled.'),
+(28, 1, 18, '2026-06-07T10:00:00', 'order_placed', 89400.00, 'Distributor pitch for kirana SKUs. 180 units.'),
+(29, 2, 5,  '2026-06-06T11:20:00', 'no_answer',         0.00, 'Sunday - store closed as expected.'),
+(30, 3, 20, '2026-06-07T12:00:00', 'order_placed',104500.00, 'Large distributor quarterly order. Premium range. 250 units.');

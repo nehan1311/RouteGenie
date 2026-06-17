@@ -64,8 +64,8 @@ export default function WarRoomScreen() {
   const reps = data?.reps || [];
   // Safe fallback region — Mumbai
   const mapRegion = {
-    latitude: reps.length > 0 ? reps[0].current_lat : 19.1136,
-    longitude: reps.length > 0 ? reps[0].current_lng : 72.8697,
+    latitude: reps.length > 0 ? reps[0].current_lat : 19.1360,
+    longitude: reps.length > 0 ? reps[0].current_lng : 72.8265,
     latitudeDelta: 0.08,
     longitudeDelta: 0.08,
   };

@@ -75,8 +75,8 @@ export default function RepRouteScreen() {
       await api.generateRoute({
         rep_id: selectedRepId,
         store_ids: candidateStoreIds,
-        start_lat: 19.1136,
-        start_lng: 72.8697,
+        start_lat: 19.1360,
+        start_lng: 72.8265,
       });
       await loadRoute(selectedRepId);
     } catch (error) {
@@ -139,8 +139,8 @@ export default function RepRouteScreen() {
         longitudeDelta: 0.05,
       }
     : {
-        latitude: 19.1136,
-        longitude: 72.8697,
+        latitude: 19.1360,
+        longitude: 72.8265,
         latitudeDelta: 0.1,
         longitudeDelta: 0.1,
       };
