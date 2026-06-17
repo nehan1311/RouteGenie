@@ -22,8 +22,8 @@ from schemas import (
 )
 
 router = APIRouter()
-DEFAULT_START_LAT = 19.1136
-DEFAULT_START_LNG = 72.8697
+DEFAULT_START_LAT = 19.1360
+DEFAULT_START_LNG = 72.8265
 
 
 def ensure_rep_access(current_user: User, rep_id: int):

@@ -252,8 +252,8 @@ export default function RepRouteScreen() {
         longitudeDelta: 0.05,
       }
     : {
-        latitude: 19.1136,
-        longitude: 72.8697,
+        latitude: 19.1360,
+        longitude: 72.8265,
         latitudeDelta: 0.1,
         longitudeDelta: 0.1,
       };

@@ -114,11 +114,11 @@ def build_database(csv_path="source_dataset.csv", db_path="routegenie.db"):
     for stype, aov in aov_by_type.items():
         print(f"  * {stype}: Rs. {aov:.2f}")
 
-    # Define Baner, Pune bounding coordinates
-    # Center: 18.5592, 73.7931
-    # Bounding Box: Lat [18.545, 18.575], Lng [73.785, 73.815]
-    lat_min, lat_max = 18.545, 18.575
-    lng_min, lng_max = 73.785, 73.815
+    # Define Andheri West, Mumbai bounding coordinates
+    # Center: 19.1360, 72.8265
+    # Bounding Box: Lat [19.1240, 19.1480], Lng [72.8140, 72.8380]
+    lat_min, lat_max = 19.1240, 19.1480
+    lng_min, lng_max = 72.8140, 72.8380
     
     random.seed(42) # Seed for reproducible coordinates
 
@@ -140,7 +140,7 @@ def build_database(csv_path="source_dataset.csv", db_path="routegenie.db"):
         "kirana": ["Aapla", "Shree", "Ganesh", "Sai", "Balaji", "Krishna", "Venkatesh", "Maruti", "Pooja", "Laxmi"],
         "medical": ["Wellness", "Apollo", "Noble", "Plus", "Metropolis", "Care", "Life", "Jeevan", "Medikart"],
         "supermarket": ["Reliance Smart", "D-Mart", "Star", "Dorabjee's", "Nature's Basket", "More", "Fresh Mart"],
-        "distributor": ["Maharashtra Traders", "Pune FMCG Wholesalers", "Western Pharma Dist", "Balaji Enterprises", "Sahyadri Distributors"]
+        "distributor": ["Maharashtra Traders", "Mumbai FMCG Wholesalers", "Western Pharma Dist", "Balaji Enterprises", "Sahyadri Distributors"]
     }
     
     store_specs = []
@@ -435,7 +435,7 @@ def build_database(csv_path="source_dataset.csv", db_path="routegenie.db"):
         conn.close()
         print(f"Database successfully generated!")
         print(f"  * Seeded {len(reps_specs)} Sales Representatives (Raj, Priya, Anil)")
-        print(f"  * Seeded {len(store_specs)} Stores in Baner, Pune (8 kirana, 5 medical, 4 supermarket, 3 distributor)")
+        print(f"  * Seeded {len(store_specs)} Stores in Andheri West, Mumbai (8 kirana, 5 medical, 4 supermarket, 3 distributor)")
         print(f"  * Seeded {len(visit_logs_specs)} Historical Visit Logs mapped to source transactions")
         return True
     except Exception as e:

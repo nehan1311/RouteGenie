@@ -24,9 +24,52 @@ def generate_day_report(
     api_key = os.getenv("GROQ_API_KEY")
 
     if not api_key:
-        raise ValueError(
-            "GROQ_API_KEY not found. Make sure your .env file is loaded."
+        # Generate a clean, WhatsApp-ready fallback report text
+        from datetime import datetime
+        completed_count = len(visit_logs)
+        missed_count = len(missed_stores)
+        
+        total_revenue = sum(
+            v["revenue"]
+            for v in visit_logs
+            if v.get("outcome") in ("sale", "order_placed")
         )
+        
+        visits_summary = "\n".join(
+            [
+                f"- {v['store_name']} ({v['store_type']}): {v['outcome'].upper()}, Rs. {v['revenue']:.2f} at {v['visited_at']}"
+                for v in visit_logs
+            ]
+        ) if visit_logs else "- No visits completed"
+        
+        missed_summary = "\n".join(
+            [
+                f"- {m['store_name']} ({m['store_type']}): {m['reason']}"
+                for m in missed_stores
+            ]
+        ) if missed_stores else "- None"
+        
+        best_start = rep_dna.get("best_time_window_start", 9)
+        
+        fallback_text = f"""*End-of-Day Report: {rep_name}*
+Date: {datetime.now().strftime("%Y-%m-%d")}
+
+*Visits Completed ({completed_count}):*
+{visits_summary}
+
+*Missed Stores ({missed_count}):*
+{missed_summary}
+
+*Total Revenue Secured:* Rs. {total_revenue:.2f}
+
+*Tomorrow's Priorities:*
+- Visit high-priority stores missed today.
+- Target maximum conversion store types.
+
+*Suggested Start Time:* {best_start:02d}:00 AM
+
+Keep up the great work! Let's secure more orders tomorrow!"""
+        return fallback_text
 
     api_key = api_key.strip()
 

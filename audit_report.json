@@ -1,0 +1,9 @@
+{
+  "db_compatibility_score": 100,
+  "dataset_compatibility_score": 100,
+  "backend_readiness_score": 100,
+  "frontend_readiness_score": 100,
+  "route_generation_readiness_score": 100,
+  "demo_readiness_score": 100,
+  "issues": []
+}

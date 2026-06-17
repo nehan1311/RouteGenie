@@ -104,8 +104,8 @@ def seed_data():
         ]
 
         # Generate 20 stores deterministically using same algorithm as build_routegenie_db.py
-        lat_min, lat_max = 18.545, 18.575
-        lng_min, lng_max = 73.785, 73.815
+        lat_min, lat_max = 19.1240, 19.1480
+        lng_min, lng_max = 72.8140, 72.8380
         
         random.seed(42)
 
@@ -125,7 +125,7 @@ def seed_data():
             "kirana": ["Aapla", "Shree", "Ganesh", "Sai", "Balaji", "Krishna", "Venkatesh", "Maruti", "Pooja", "Laxmi"],
             "medical": ["Wellness", "Apollo", "Noble", "Plus", "Metropolis", "Care", "Life", "Jeevan", "Metikart"],
             "supermarket": ["Reliance Smart", "D-Mart", "Star", "Dorabjee's", "Nature's Basket", "More", "Fresh Mart"],
-            "distributor": ["Maharashtra Traders", "Pune FMCG Wholesalers", "Western Pharma Dist", "Balaji Enterprises", "Sahyadri Distributors"]
+            "distributor": ["Maharashtra Traders", "Mumbai FMCG Wholesalers", "Western Pharma Dist", "Balaji Enterprises", "Sahyadri Distributors"]
         }
         
         aov_by_type = {
