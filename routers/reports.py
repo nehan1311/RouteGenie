@@ -4,12 +4,21 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import require_role
 from ai_reporter import generate_day_report
 from database import get_db
-from models import Rep, RouteEntry, Store, VisitLog
+from models import Rep, RouteEntry, Store, User, VisitLog
 from schemas import ReportGenerateRequest
 
 router = APIRouter()
+
+
+def ensure_rep_access(current_user: User, rep_id: int):
+    if current_user.role == "rep" and current_user.rep_id != rep_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot access another rep's data",
+        )
 
 
 def parse_rep_dna(rep: Rep) -> dict:
@@ -124,11 +133,18 @@ def generate_report_payload(rep_id: int, report_date: str, db: Session) -> dict:
 def generate_report(
     request: ReportGenerateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
 ):
+    ensure_rep_access(current_user, request.rep_id)
     return generate_report_payload(request.rep_id, request.date, db)
 
 
 @router.get("/{rep_id}/latest")
-def latest_report(rep_id: int, db: Session = Depends(get_db)):
+def latest_report(
+    rep_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
+):
+    ensure_rep_access(current_user, rep_id)
     today = datetime.now().date().isoformat()
     return generate_report_payload(rep_id, today, db)

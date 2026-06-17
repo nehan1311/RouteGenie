@@ -1,9 +1,42 @@
 import json
 import random
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
+from auth import get_password_hash
 from database import SessionLocal, create_tables
-from models import Rep, Store
+from models import Rep, Store, User
+
+
+def seed_users(db):
+    if db.query(User).first():
+        print("Users already seeded")
+        return
+
+    reps = db.query(Rep).all()
+    users = [
+        User(
+            email="manager@routegenie.com",
+            hashed_password=get_password_hash("manager123"),
+            role="manager",
+            rep_id=None,
+            created_at=datetime.now().isoformat(),
+        )
+    ]
+
+    for rep in reps:
+        users.append(
+            User(
+                email=f"{rep.name.lower()}@routegenie.com",
+                hashed_password=get_password_hash("rep123"),
+                role="rep",
+                rep_id=rep.id,
+                created_at=datetime.now().isoformat(),
+            )
+        )
+
+    db.add_all(users)
+    db.commit()
+    print(f"Seeded {len(users)} users")
 
 
 def seed_data():
@@ -13,6 +46,7 @@ def seed_data():
     try:
         if db.query(Store).first() or db.query(Rep).first():
             print("Already seeded")
+            seed_users(db)
             return
 
         reps = [
@@ -158,6 +192,7 @@ def seed_data():
         db.commit()
 
         print(f"Seeded {len(stores)} stores and {len(reps)} reps")
+        seed_users(db)
     finally:
         db.close()
 

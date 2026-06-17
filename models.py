@@ -30,6 +30,17 @@ class Rep(Base):
     dna_profile = Column(String)
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String, unique=True, nullable=False, index=True)
+    hashed_password = Column(String)
+    role = Column(String)
+    rep_id = Column(Integer, ForeignKey("reps.id"), nullable=True)
+    created_at = Column(String)
+
+
 class RouteEntry(Base):
     __tablename__ = "route_entries"
 

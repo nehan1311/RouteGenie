@@ -1,41 +1,69 @@
-import { useEffect, useState } from "react";
-import { Alert, Button, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
-import { Picker } from "@react-native-picker/picker";
+import { useState } from "react";
+import { Alert, Linking, ScrollView, StyleSheet, Text, View } from "react-native";
 import { api } from "../api/client";
-import { Card, EmptyState, LoadingState, SectionTitle, sharedStyles } from "../components/UI";
-import { colors } from "../theme/colors";
+import { useAuth } from "../auth/AuthContext";
+import {
+  AppButton,
+  Card,
+  EmptyState,
+  LoadingState,
+  SectionTitle,
+  StatTile,
+  sharedStyles,
+} from "../components/UI";
+import { theme } from "../theme/colors";
+
+const { colors, spacing, type, radius } = theme;
+
+function FormattedReportText({ text }) {
+  const lines = String(text || "").split("\n");
+
+  return (
+    <View style={styles.reportBody}>
+      {lines.map((line, lineIndex) => {
+        const parts = line.split(/(\*[^*]+\*)/g).filter(Boolean);
+        return (
+          <Text key={`${line}-${lineIndex}`} style={styles.reportLine}>
+            {parts.map((part, partIndex) => {
+              const emphasized = part.startsWith("*") && part.endsWith("*") && part.length > 2;
+              return (
+                <Text
+                  key={`${part}-${partIndex}`}
+                  style={emphasized ? styles.reportEmphasis : null}
+                >
+                  {emphasized ? part.slice(1, -1) : part}
+                </Text>
+              );
+            })}
+          </Text>
+        );
+      })}
+    </View>
+  );
+}
 
 export default function ReportScreen() {
-  const [reps, setReps] = useState([]);
-  const [repId, setRepId] = useState(null);
+  const { repId, name } = useAuth();
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  async function loadReps() {
-    try {
-      const repList = await api.getReps();
-      setReps(repList);
-      if (repList.length > 0) setRepId(repList[0].id);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
-
   async function generateReport() {
     if (!repId) return;
     setLoading(true);
-    try {
-      const data = await api.generateReport({
-        rep_id: repId,
-        date: new Date().toISOString().slice(0, 10),
-      });
+    setError("");
+    const { data, error } = await api.generateReport({
+      rep_id: repId,
+      date: new Date().toISOString().slice(0, 10),
+    });
+
+    if (error) {
+      setError(error);
+      Alert.alert("Report generation failed", error);
+    } else {
       setReport(data);
-    } catch (error) {
-      Alert.alert("Report generation failed", error.message);
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }
 
   async function shareWhatsApp() {
@@ -50,30 +78,25 @@ export default function ReportScreen() {
     await Linking.openURL(url);
   }
 
-  useEffect(() => {
-    loadReps();
-  }, []);
-
   return (
     <ScrollView style={sharedStyles.screen}>
       <Text style={sharedStyles.title}>One-Button Report</Text>
-      <Text style={sharedStyles.subtitle}>Generate and share end-of-day summary instantly.</Text>
+      <Text style={sharedStyles.subtitle}>
+        {name ? `Generate ${name}'s end-of-day summary.` : "Generate your end-of-day summary."}
+      </Text>
 
-      <Card>
-        <SectionTitle>Rep</SectionTitle>
-        <Picker
-          selectedValue={repId}
-          onValueChange={(value) => setRepId(value)}
-          style={{ color: "#0F172A" }}
-        >
-          {reps.length === 0 && (
-            <Picker.Item label="Loading reps..." value={null} />
-          )}
-          {reps.map((rep) => (
-            <Picker.Item key={rep.id} label={rep.name} value={rep.id} />
-          ))}
-        </Picker>
-        <Button title={loading ? "Generating..." : "Generate Report"} onPress={generateReport} color={colors.primary} />
+      <Card style={styles.actionCard}>
+        <View style={styles.actionCopy}>
+          <SectionTitle>My Report</SectionTitle>
+          <Text style={styles.helperText}>
+            Build a concise visit summary with missed stores, revenue, and next actions.
+          </Text>
+        </View>
+        <AppButton
+          title={loading ? "Generating..." : "Generate Report"}
+          onPress={generateReport}
+          disabled={loading || !repId}
+        />
       </Card>
 
       {error ? <EmptyState text={`Error: ${error}`} /> : null}
@@ -83,32 +106,70 @@ export default function ReportScreen() {
       {!report && !loading ? <EmptyState text="No report generated yet." /> : null}
 
       {report ? (
-        <Card>
-          <SectionTitle>Report Output</SectionTitle>
-          <View style={styles.metaRow}>
-            <Text style={styles.meta}>Completed: {report.completed_visits}</Text>
-            <Text style={styles.meta}>Missed: {report.missed_visits}</Text>
-            <Text style={styles.meta}>Revenue: Rs. {report.total_revenue}</Text>
+        <>
+          <View style={styles.statsGrid}>
+            <StatTile label="Completed" value={report.completed_visits} tone="success" />
+            <StatTile label="Missed" value={report.missed_visits} tone="danger" />
+            <StatTile label="Revenue" value={`Rs. ${report.total_revenue}`} tone="neutral" />
           </View>
-          <Text style={styles.reportText}>{report.report_text}</Text>
-          <Button title="Send via WhatsApp" onPress={shareWhatsApp} color={colors.success} />
-        </Card>
+
+          <Card>
+            <SectionTitle>Report Output</SectionTitle>
+            <View style={styles.reportCard}>
+              <FormattedReportText text={report.report_text} />
+            </View>
+            <AppButton
+              title="Send via WhatsApp"
+              onPress={shareWhatsApp}
+              variant="success"
+              style={styles.shareButton}
+            />
+          </Card>
+        </>
       ) : null}
     </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
-  metaRow: {
-    marginBottom: 12,
-    gap: 4,
+  actionCard: {
+    gap: spacing.md,
   },
-  meta: {
-    color: colors.secondaryText,
+  actionCopy: {
+    gap: spacing.xs,
   },
-  reportText: {
+  helperText: {
+    color: colors.textSecondary,
+    fontSize: type.body,
+    lineHeight: 21,
+  },
+  statsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  reportCard: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+  },
+  reportBody: {
+    gap: spacing.xs,
+  },
+  reportLine: {
     color: colors.text,
-    lineHeight: 22,
-    marginBottom: 12,
+    fontSize: type.body,
+    lineHeight: 23,
+  },
+  reportEmphasis: {
+    fontWeight: "900",
+    color: colors.primaryDark,
+  },
+  shareButton: {
+    alignSelf: "stretch",
   },
 });

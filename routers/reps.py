@@ -3,11 +3,12 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import require_role
 from database import get_db
 from models import Rep
 from schemas import DnaProfile, RepOut, RepSummary
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_role("rep", "manager"))])
 
 
 def format_hour(hour: int) -> str:

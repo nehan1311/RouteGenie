@@ -1,5 +1,6 @@
 # Environment variables
 .env
+.env.example
 
 # Python
 __pycache__/
@@ -37,3 +38,25 @@ frontend/node_modules/
 frontend/.expo/
 frontend/dist/
 frontend/build/
+
+# Logs
+*.log
+*.err.log
+*.out.log
+
+# SQLite
+*.db
+*.db-journal
+*.bak
+
+# Python
+venv/
+__pycache__/
+*.pyc
+.env
+
+# Node
+node_modules/
+
+# Expo
+.expo/

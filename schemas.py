@@ -193,3 +193,32 @@ class WhatIfResponse(BaseModel):
     delta: dict[str, Any]
     recommendation: str
     simulated_route: list[RouteStop]
+
+
+class UserRegister(BaseModel):
+    email: str
+    password: str
+    role: Literal["rep", "manager"]
+    rep_id: int | None = None
+
+
+class UserLogin(BaseModel):
+    email: str
+    password: str
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    role: str
+    rep_id: int | None = None
+    name: str
+
+
+class UserOut(BaseModel):
+    id: int
+    email: str
+    role: str
+    rep_id: int | None = None
+
+    model_config = ConfigDict(from_attributes=True)

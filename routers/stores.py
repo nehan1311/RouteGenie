@@ -3,11 +3,12 @@ from datetime import date, datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import require_role
 from database import get_db
 from models import Store, VisitLog
 from schemas import StoreOut, StoreUrgency, VisitLogCreate
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_role("rep", "manager"))])
 
 
 def calculate_urgency(store: Store, today: date) -> StoreUrgency:

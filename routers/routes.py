@@ -4,8 +4,9 @@ from datetime import date, datetime, timedelta
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from auth import require_role
 from database import get_db
-from models import Rep, RouteEntry, Store, VisitLog
+from models import Rep, RouteEntry, Store, User, VisitLog
 from optimizer import generate_route, replan_route
 from schemas import (
     MarkDoneRequest,
@@ -23,6 +24,14 @@ from schemas import (
 router = APIRouter()
 DEFAULT_START_LAT = 19.1136
 DEFAULT_START_LNG = 72.8697
+
+
+def ensure_rep_access(current_user: User, rep_id: int):
+    if current_user.role == "rep" and current_user.rep_id != rep_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot access another rep's data",
+        )
 
 
 def parse_rep_dna(rep: Rep) -> dict:
@@ -216,7 +225,10 @@ def shift_route_times(route: list[dict], delay_minutes: int) -> tuple[list[dict]
 def generate_rep_route(
     request: RouteGenerateRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
 ):
+    ensure_rep_access(current_user, request.rep_id)
+
     if not request.store_ids:
         raise HTTPException(status_code=400, detail="store_ids cannot be empty")
 
@@ -267,7 +279,13 @@ def generate_rep_route(
 
 
 @router.post("/replan", response_model=ReplanResponse)
-def replan_rep_route(request: ReplanRequest, db: Session = Depends(get_db)):
+def replan_rep_route(
+    request: ReplanRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
+):
+    ensure_rep_access(current_user, request.rep_id)
+
     rep = db.query(Rep).filter(Rep.id == request.rep_id).first()
     if rep is None:
         raise HTTPException(status_code=404, detail="Rep not found")
@@ -331,7 +349,10 @@ def replan_rep_route(request: ReplanRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/manager/war-room", response_model=WarRoomResponse)
-def manager_war_room(db: Session = Depends(get_db)):
+def manager_war_room(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("manager")),
+):
     today = date.today().isoformat()
     now = datetime.now()
     elapsed_hours = max(0, min(8, (now - now.replace(hour=9, minute=0, second=0)).total_seconds() / 3600))
@@ -418,6 +439,7 @@ def manager_war_room(db: Session = Depends(get_db)):
 def manager_redistribute(
     request: RedistributeRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("manager")),
 ):
     today = date.today().isoformat()
     from_rep = db.query(Rep).filter(Rep.id == request.from_rep_id).first()
@@ -478,7 +500,11 @@ def manager_redistribute(
 
 
 @router.post("/manager/what-if", response_model=WhatIfResponse)
-def manager_what_if(request: WhatIfRequest, db: Session = Depends(get_db)):
+def manager_what_if(
+    request: WhatIfRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("manager")),
+):
     today = date.today().isoformat()
     rep = db.query(Rep).filter(Rep.id == request.rep_id).first()
     if rep is None:
@@ -573,7 +599,13 @@ def manager_what_if(request: WhatIfRequest, db: Session = Depends(get_db)):
 
 
 @router.get("/{rep_id}/today")
-def get_today_route(rep_id: int, db: Session = Depends(get_db)):
+def get_today_route(
+    rep_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
+):
+    ensure_rep_access(current_user, rep_id)
+
     today = date.today().isoformat()
     route_entry = (
         db.query(RouteEntry)
@@ -630,7 +662,10 @@ def mark_store_done(
     rep_id: int,
     request: MarkDoneRequest,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
 ):
+    ensure_rep_access(current_user, rep_id)
+
     rep = db.query(Rep).filter(Rep.id == rep_id).first()
     if rep is None:
         raise HTTPException(status_code=404, detail="Rep not found")

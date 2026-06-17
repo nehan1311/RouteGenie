@@ -6,3 +6,8 @@ ortools
 anthropic
 httpx
 groq
+python-dotenv
+passlib[bcrypt]
+bcrypt<5
+python-jose[cryptography]
+python-multipart

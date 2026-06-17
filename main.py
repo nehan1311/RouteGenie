@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv()
 
 from database import create_tables
-from routers import reports, reps, routes, stores
+from routers import auth, reports, reps, routes, stores
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ app.include_router(stores.router, prefix="/stores", tags=["stores"])
 app.include_router(reps.router, prefix="/reps", tags=["reps"])
 app.include_router(routes.router, prefix="/routes", tags=["routes"])
 app.include_router(reports.router, prefix="/reports", tags=["reports"])
+app.include_router(auth.router, prefix="/auth", tags=["auth"])
 
 
 @app.get("/health")

@@ -1,33 +1,72 @@
-import { Platform } from "react-native";
+// Expo web runs in the desktop browser, so localhost points at this dev machine.
+// For Expo Go on a physical device, change this to the machine's LAN IP because
+// localhost on the phone points at the phone itself.
+const API_BASE_URL = "http://localhost:8000";
+export const AUTH_EXPIRED_ERROR = "AUTH_EXPIRED";
 
-// Use 10.0.2.2 for Android emulator, LAN IP for physical device / iOS.
-// Change the LAN IP below to match your PC's IP (run `ipconfig` on Windows).
-const LAN_IP = "192.168.29.113";
+let authToken = null;
 
-const API_BASE_URL =
-  Platform.OS === "android" && !__DEV__
-    ? `http://${LAN_IP}:8000`   // release APK on physical Android
-    : Platform.OS === "android"
-    ? `http://${LAN_IP}:8000`   // Expo Go on physical Android
-    : `http://${LAN_IP}:8000`;  // iOS / web
+export function setAuthToken(token) {
+  authToken = token;
+}
 
 async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  try {
+    const headers = {
+      "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...(options.headers || {}),
+    };
 
-  if (!response.ok) {
-    const errorPayload = await response.json().catch(() => ({}));
-    throw new Error(errorPayload.detail || "Request failed");
+    const response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers,
+    });
+
+    const payload = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        return {
+          data: null,
+          error: AUTH_EXPIRED_ERROR,
+          status: response.status,
+        };
+      }
+
+      return {
+        data: null,
+        error: payload?.detail || `Request failed with status ${response.status}`,
+        status: response.status,
+      };
+    }
+
+    return { data: payload, error: null, status: response.status };
+  } catch (error) {
+    return {
+      data: null,
+      error: error.message || "Network request failed",
+      status: null,
+    };
   }
-
-  return response.json();
 }
 
 export const api = {
-  getReps: () => request("/reps"),
-  getStores: () => request("/stores"),
+  healthCheck: () => request("/health"),
+
+  getStores: () => request("/stores/"),
+  getStoreUrgency: () => request("/stores/urgency"),
+  getStore: (storeId) => request(`/stores/${storeId}`),
+  logVisit: (payload) =>
+    request("/stores/visit", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  getReps: () => request("/reps/"),
+  getRep: (repId) => request(`/reps/${repId}`),
+  getRepDna: (repId) => request(`/reps/${repId}/dna`),
+
   getTodayRoute: (repId) => request(`/routes/${repId}/today`),
   generateRoute: (payload) =>
     request("/routes/generate", {
@@ -39,7 +78,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  markDone: (repId, payload) =>
+  markStoreDone: (repId, payload) =>
     request(`/routes/${repId}/mark-done`, {
       method: "POST",
       body: JSON.stringify(payload),
@@ -50,16 +89,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  whatIf: (payload) =>
+  runWhatIf: (payload) =>
     request("/routes/manager/what-if", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+
   generateReport: (payload) =>
     request("/reports/generate", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  getLatestReport: (repId) => request(`/reports/${repId}/latest`),
 };
 
 export { API_BASE_URL };
