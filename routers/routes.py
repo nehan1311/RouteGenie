@@ -9,6 +9,7 @@ from database import get_db
 from models import Rep, RouteEntry, Store, User, VisitLog
 from optimizer import generate_optimal_route, generate_route, replan_route, haversine_distance
 from schemas import (
+    CandidateStoresResponse,
     MarkDoneRequest,
     OptimalRouteRequest,
     OptimalRouteResponse,
@@ -24,16 +25,53 @@ from schemas import (
 )
 
 router = APIRouter()
-DEFAULT_START_LAT = 18.5592
-DEFAULT_START_LNG = 73.7931
+DEFAULT_START_LAT = 19.1360
+DEFAULT_START_LNG = 72.8265
 
 
-def ensure_rep_access(current_user: User, rep_id: int):
+def ensure_rep_access(current_user: User, rep_id: int, db: Session | None = None):
     if current_user.role == "rep" and current_user.rep_id != rep_id:
         raise HTTPException(
             status_code=403,
             detail="Cannot access another rep's data",
         )
+    if current_user.role == "manager" and db is not None:
+        rep = db.query(Rep).filter(Rep.id == rep_id).first()
+        if rep is None:
+            raise HTTPException(status_code=404, detail="Rep not found")
+        if rep.manager_id != current_user.id:
+            raise HTTPException(status_code=403, detail="Rep is not in your team")
+
+
+def manager_reps(db: Session, current_user: User) -> list[Rep]:
+    if current_user.role != "manager":
+        return []
+    return db.query(Rep).filter(Rep.manager_id == current_user.id).all()
+
+
+def assigned_store_ids_for_rep(rep: Rep, stores: list[Store]) -> list[int]:
+    rep_dna = parse_rep_dna(rep)
+    conversion_rates = rep_dna.get("conversion_rates", {})
+    top_store_type = max(conversion_rates, key=conversion_rates.get)
+
+    assigned = [
+        store.id
+        for store in stores
+        if store.store_type == top_store_type or conversion_rates.get(store.store_type, 0) >= 0.5
+    ]
+
+    territory_fillers = [
+        store.id
+        for store in stores
+        if store.id not in assigned and (store.id + rep.id) % 3 == 0
+    ]
+    high_value_fillers = [
+        store.id
+        for store in sorted(stores, key=lambda store: store.avg_order_value, reverse=True)
+        if store.id not in assigned and store.id not in territory_fillers
+    ]
+
+    return (assigned + territory_fillers + high_value_fillers)[:12]
 
 
 def parse_rep_dna(rep: Rep) -> dict:
@@ -223,13 +261,46 @@ def shift_route_times(route: list[dict], delay_minutes: int) -> tuple[list[dict]
     return shifted_route, at_risk_count
 
 
+@router.get("/{rep_id}/candidate-stores", response_model=CandidateStoresResponse)
+def get_candidate_stores_for_rep(
+    rep_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
+):
+    ensure_rep_access(current_user, rep_id, db)
+    rep = db.query(Rep).filter(Rep.id == rep_id).first()
+    if rep is None:
+        raise HTTPException(status_code=404, detail="Rep not found")
+
+    stores = db.query(Store).all()
+    assigned_ids = assigned_store_ids_for_rep(rep, stores)
+    rep_dna = parse_rep_dna(rep)
+    top_store_type = max(
+        rep_dna["conversion_rates"],
+        key=rep_dna["conversion_rates"].get,
+    )
+
+    return {
+        "rep_id": rep.id,
+        "rep_name": rep.name,
+        "manager_id": rep.manager_id,
+        "total_company_stores": len(stores),
+        "assigned_count": len(assigned_ids),
+        "assigned_store_ids": assigned_ids,
+        "assignment_reason": (
+            f"{rep.name}'s patch favors {top_store_type} outlets, then fills nearby "
+            "high-value stores so the route remains realistic."
+        ),
+    }
+
+
 @router.post("/generate", response_model=RouteResponse)
 def generate_rep_route(
     request: RouteGenerateRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("rep", "manager")),
 ):
-    ensure_rep_access(current_user, request.rep_id)
+    ensure_rep_access(current_user, request.rep_id, db)
 
     if not request.store_ids:
         raise HTTPException(status_code=400, detail="store_ids cannot be empty")
@@ -286,7 +357,7 @@ def generate_rep_optimal_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("rep", "manager")),
 ):
-    ensure_rep_access(current_user, request.rep_id)
+    ensure_rep_access(current_user, request.rep_id, db)
 
     if not request.store_ids:
         raise HTTPException(status_code=400, detail="store_ids cannot be empty")
@@ -346,7 +417,7 @@ def replan_rep_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("rep", "manager")),
 ):
-    ensure_rep_access(current_user, request.rep_id)
+    ensure_rep_access(current_user, request.rep_id, db)
 
     rep = db.query(Rep).filter(Rep.id == request.rep_id).first()
     if rep is None:
@@ -421,7 +492,7 @@ def manager_war_room(
     expected_completion_pct = (elapsed_hours / 8) * 100
     on_track_threshold = max(0, expected_completion_pct - 10)
 
-    reps = db.query(Rep).all()
+    reps = manager_reps(db, current_user)
     rep_statuses = []
 
     for rep in reps:
@@ -508,6 +579,8 @@ def manager_redistribute(
     to_rep = db.query(Rep).filter(Rep.id == request.to_rep_id).first()
     if from_rep is None or to_rep is None:
         raise HTTPException(status_code=404, detail="One or both reps not found")
+    if from_rep.manager_id != current_user.id or to_rep.manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Both reps must be in your team")
 
     from_entry = get_active_route_entry(db, request.from_rep_id, today)
     if from_entry is None:
@@ -571,6 +644,8 @@ def manager_what_if(
     rep = db.query(Rep).filter(Rep.id == request.rep_id).first()
     if rep is None:
         raise HTTPException(status_code=404, detail="Rep not found")
+    if rep.manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Rep is not in your team")
 
     route_entry = get_active_route_entry(db, request.rep_id, today)
     if route_entry is None:
@@ -666,7 +741,7 @@ def get_today_route(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("rep", "manager")),
 ):
-    ensure_rep_access(current_user, rep_id)
+    ensure_rep_access(current_user, rep_id, db)
 
     today = date.today().isoformat()
     route_entry = (
@@ -743,8 +818,10 @@ def get_today_route(
         previous_lat = store.lat
         previous_lng = store.lng
 
-    # Fetch all stores to calculate candidates vs dropped
-    all_stores = db.query(Store).all()
+    # Fetch assigned stores to calculate candidates vs dropped for this rep's patch
+    company_stores = db.query(Store).all()
+    assigned_ids = assigned_store_ids_for_rep(rep, company_stores)
+    all_stores = [store for store in company_stores if store.id in assigned_ids]
     ordered_set = set(ordered_store_ids)
     dropped_stores = []
     for s in all_stores:
@@ -777,7 +854,7 @@ def mark_store_done(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_role("rep", "manager")),
 ):
-    ensure_rep_access(current_user, rep_id)
+    ensure_rep_access(current_user, rep_id, db)
 
     rep = db.query(Rep).filter(Rep.id == rep_id).first()
     if rep is None:

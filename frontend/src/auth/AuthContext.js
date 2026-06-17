@@ -9,6 +9,7 @@ const emptySession = {
   token: null,
   role: null,
   repId: null,
+  managerId: null,
   name: null,
 };
 
@@ -17,6 +18,7 @@ function normalizeLoginPayload(payload) {
     token: payload.access_token,
     role: payload.role,
     repId: payload.rep_id,
+    managerId: payload.manager_id,
     name: payload.name,
   };
 }
@@ -68,6 +70,7 @@ export function AuthProvider({ children }) {
           token: storedSession.token,
           role: result.data.role,
           repId: result.data.rep_id,
+          managerId: result.data.manager_id,
           name: storedSession.name || result.data.email,
         };
         setAuthToken(nextSession.token);
@@ -89,6 +92,7 @@ export function AuthProvider({ children }) {
       token: session.token,
       role: session.role,
       repId: session.repId,
+      managerId: session.managerId,
       name: session.name,
       isLoading,
       isAuthenticated: Boolean(session.token),

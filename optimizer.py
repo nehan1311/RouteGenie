@@ -537,7 +537,7 @@ def generate_optimal_route(
     for i in range(1, len(locations)):
         node_index = manager.NodeToIndex(i)
         visit_val = locations[i]["visit_value"]
-        penalty = int(visit_val * 1000)
+        penalty = int(visit_val * 100000)
         routing.AddDisjunction([node_index], penalty)
 
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
@@ -558,7 +558,7 @@ def generate_optimal_route(
             ordered_indices.append(manager.IndexToNode(index))
             index = solution.Value(routing.NextVar(index))
         visited_nodes = [locations[idx] for idx in ordered_indices if idx != 0]
-    else:
+    if not solution or not visited_nodes:
         # Naive greedy fallback
         fallback_used = True
         current_lat = start_lat

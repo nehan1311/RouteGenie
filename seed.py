@@ -8,28 +8,46 @@ from models import Rep, Store, User
 
 
 def seed_users(db):
-    if db.query(User).first():
-        print("Users already seeded")
+    existing_manager = (
+        db.query(User)
+        .filter(User.email == "manager@routegenie.com")
+        .first()
+    )
+    if existing_manager and db.query(User).count() >= 4:
+        reps_without_manager = db.query(Rep).filter(Rep.manager_id.is_(None)).all()
+        for rep in reps_without_manager:
+            rep.manager_id = existing_manager.id
+        db.commit()
+        print("Users already seeded; manager team links verified")
         return
 
     reps = db.query(Rep).all()
-    users = [
-        User(
-            email="manager@routegenie.com",
-            hashed_password=get_password_hash("manager123"),
-            role="manager",
-            rep_id=None,
-            created_at=datetime.now().isoformat(),
-        )
-    ]
+    manager = existing_manager or User(
+        email="manager@routegenie.com",
+        hashed_password=get_password_hash("manager123"),
+        role="manager",
+        rep_id=None,
+        manager_id=None,
+        created_at=datetime.now().isoformat(),
+    )
+    if existing_manager is None:
+        db.add(manager)
+        db.commit()
+        db.refresh(manager)
+
+    users = []
 
     for rep in reps:
+        rep.manager_id = manager.id
+        if db.query(User).filter(User.rep_id == rep.id).first():
+            continue
         users.append(
             User(
                 email=f"{rep.name.lower()}@routegenie.com",
                 hashed_password=get_password_hash("rep123"),
                 role="rep",
                 rep_id=rep.id,
+                manager_id=manager.id,
                 created_at=datetime.now().isoformat(),
             )
         )

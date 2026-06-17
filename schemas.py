@@ -71,6 +71,8 @@ class RepOut(BaseModel):
 class RepSummary(BaseModel):
     id: int
     name: str
+    manager_id: int | None = None
+    manager_name: str | None = None
     best_time_window: str
     top_store_type: str
     avg_visit_time_minutes: int
@@ -212,6 +214,7 @@ class Token(BaseModel):
     token_type: str = "bearer"
     role: str
     rep_id: int | None = None
+    manager_id: int | None = None
     name: str
 
 
@@ -220,8 +223,19 @@ class UserOut(BaseModel):
     email: str
     role: str
     rep_id: int | None = None
+    manager_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CandidateStoresResponse(BaseModel):
+    rep_id: int
+    rep_name: str
+    manager_id: int | None = None
+    total_company_stores: int
+    assigned_count: int
+    assigned_store_ids: list[int]
+    assignment_reason: str
 
 
 class OptimalRouteRequest(BaseModel):

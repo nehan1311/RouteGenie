@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
@@ -38,6 +39,12 @@ export default function LoginScreen() {
     setSubmitting(false);
   }
 
+  function fillDemo(emailValue, passwordValue) {
+    setEmail(emailValue);
+    setPassword(passwordValue);
+    setError("");
+  }
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -49,11 +56,18 @@ export default function LoginScreen() {
         </View>
         <Text style={[sharedStyles.title, styles.title]}>RouteGenie</Text>
         <Text style={[sharedStyles.subtitle, styles.subtitle]}>
-          Sign in to your route workspace.
+          Field routing command center for FMCG and pharma sales teams.
         </Text>
 
         <Card style={styles.card}>
           <View style={styles.accent} />
+          <Text style={styles.demoTitle}>Demo accounts</Text>
+          <View style={styles.demoGrid}>
+            <DemoAccount label="Manager" onPress={() => fillDemo("manager@routegenie.com", "manager123")} />
+            <DemoAccount label="Raj" onPress={() => fillDemo("raj@routegenie.com", "rep123")} />
+            <DemoAccount label="Priya" onPress={() => fillDemo("priya@routegenie.com", "rep123")} />
+            <DemoAccount label="Anil" onPress={() => fillDemo("anil@routegenie.com", "rep123")} />
+          </View>
           <Text style={styles.label}>Email</Text>
           <TextInput
             autoCapitalize="none"
@@ -91,6 +105,14 @@ export default function LoginScreen() {
         </Card>
       </View>
     </KeyboardAvoidingView>
+  );
+}
+
+function DemoAccount({ label, onPress }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.demoPill, pressed ? styles.demoPillPressed : null]}>
+      <Text style={styles.demoPillText}>{label}</Text>
+    </Pressable>
   );
 }
 
@@ -136,6 +158,36 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: radius.sm,
     marginBottom: spacing.lg,
+  },
+  demoTitle: {
+    color: colors.textSecondary,
+    fontSize: type.caption,
+    fontWeight: "900",
+    marginBottom: spacing.sm,
+    textTransform: "uppercase",
+  },
+  demoGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.lg,
+  },
+  demoPill: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+  },
+  demoPillPressed: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.borderStrong,
+  },
+  demoPillText: {
+    color: colors.text,
+    fontSize: type.caption,
+    fontWeight: "900",
   },
   label: {
     color: colors.text,

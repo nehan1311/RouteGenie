@@ -67,6 +67,7 @@ export const api = {
   getRep: (repId) => request(`/reps/${repId}`),
   getRepDna: (repId) => request(`/reps/${repId}/dna`),
 
+  getCandidateStores: (repId) => request(`/routes/${repId}/candidate-stores`),
   getTodayRoute: (repId) => request(`/routes/${repId}/today`),
   generateRoute: (payload) =>
     request("/routes/generate", {

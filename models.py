@@ -23,6 +23,7 @@ class Rep(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String)
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     avg_visit_time_minutes = Column(Integer)
     best_time_window_start = Column(Integer)
     best_time_window_end = Column(Integer)
@@ -38,6 +39,7 @@ class User(Base):
     hashed_password = Column(String)
     role = Column(String)
     rep_id = Column(Integer, ForeignKey("reps.id"), nullable=True)
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(String)
 
 

@@ -24,6 +24,7 @@ def token_for_user(user: User, db: Session) -> Token:
             "email": user.email,
             "role": user.role,
             "rep_id": user.rep_id,
+            "manager_id": user.manager_id,
         }
     )
 
@@ -32,6 +33,7 @@ def token_for_user(user: User, db: Session) -> Token:
         token_type="bearer",
         role=user.role,
         rep_id=user.rep_id,
+        manager_id=user.manager_id,
         name=rep_name if user.role == "rep" and rep_name else user.email,
     )
 

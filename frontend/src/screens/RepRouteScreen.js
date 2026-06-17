@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View, Linking } from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, TextInput, View, Linking } from "react-native";
 import MapView, { Marker, Polyline } from "../components/Map";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -16,6 +16,8 @@ import {
 import { theme } from "../theme/colors";
 
 const { colors, spacing, type, radius } = theme;
+const DEFAULT_START_LAT = "19.1360";
+const DEFAULT_START_LNG = "72.8265";
 
 function urgencyColor(status) {
   if (status === "red") return colors.red;
@@ -25,17 +27,6 @@ function urgencyColor(status) {
 
 function routeStops(routeData) {
   return routeData?.stores || [];
-}
-
-function selectUrgencyStoreIds(urgencyPayload) {
-  const urgencyStores = [...(urgencyPayload?.stores || [])].sort(
-    (a, b) => b.urgency_score - a.urgency_score
-  );
-  const priorityStores = urgencyStores.filter((store) =>
-    ["red", "yellow"].includes(store.urgency_status)
-  );
-  const candidates = priorityStores.length > 0 ? priorityStores : urgencyStores;
-  return candidates.slice(0, 10).map((store) => store.store_id);
 }
 
 function StopCard({ stop, index, busyStoreId, onDone, onCancel }) {
@@ -114,6 +105,9 @@ export default function RepRouteScreen() {
   const [busyStoreId, setBusyStoreId] = useState(null);
   const [message, setMessage] = useState("");
   const [showDropped, setShowDropped] = useState(false);
+  const [startLat, setStartLat] = useState(DEFAULT_START_LAT);
+  const [startLng, setStartLng] = useState(DEFAULT_START_LNG);
+  const [assignment, setAssignment] = useState(null);
 
   const stops = routeStops(route);
   const coordinates = useMemo(
@@ -123,7 +117,7 @@ export default function RepRouteScreen() {
 
   const googleMapsUrl = useMemo(() => {
     if (!stops || stops.length === 0) return null;
-    const origin = "18.5592,73.7931";
+    const origin = `${startLat},${startLng}`;
     const activeStops = stops.filter(s => s.status !== "cancelled");
     if (activeStops.length === 0) return null;
     const destination = `${activeStops[activeStops.length - 1].lat},${activeStops[activeStops.length - 1].lng}`;
@@ -133,7 +127,7 @@ export default function RepRouteScreen() {
       .join("|");
     
     return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${encodeURIComponent(waypoints)}`;
-  }, [stops]);
+  }, [stops, startLat, startLng]);
 
   const openGoogleMaps = () => {
     if (googleMapsUrl) {
@@ -175,17 +169,26 @@ export default function RepRouteScreen() {
     setLoadingText("Selecting your optimal stores for today...");
     setMessage("");
 
-    const storesResult = await api.getStores();
-    if (storesResult.error) {
-      setMessage(storesResult.error);
-      Alert.alert("Could not load candidate stores", storesResult.error);
+    const locationLat = Number(startLat);
+    const locationLng = Number(startLng);
+    if (!Number.isFinite(locationLat) || !Number.isFinite(locationLng)) {
+      setMessage("Enter a valid latitude and longitude.");
       setLoading(false);
       return;
     }
 
-    const candidateStoreIds = (storesResult.data || []).map((store) => store.id);
+    const assignmentResult = await api.getCandidateStores(repId);
+    if (assignmentResult.error) {
+      setMessage(assignmentResult.error);
+      Alert.alert("Could not load assigned stores", assignmentResult.error);
+      setLoading(false);
+      return;
+    }
+
+    setAssignment(assignmentResult.data);
+    const candidateStoreIds = assignmentResult.data?.assigned_store_ids || [];
     if (candidateStoreIds.length === 0) {
-      setMessage("No stores available for route generation.");
+      setMessage("No assigned stores available for route generation.");
       setLoading(false);
       return;
     }
@@ -193,8 +196,8 @@ export default function RepRouteScreen() {
     const routeResult = await api.generateOptimalRoute(
       repId,
       candidateStoreIds,
-      18.5592,
-      73.7931
+      locationLat,
+      locationLng
     );
 
     if (routeResult.error) {
@@ -205,6 +208,22 @@ export default function RepRouteScreen() {
     }
 
     await loadRoute();
+  }
+
+  function useBrowserLocation() {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      Alert.alert("Location unavailable", "Type the start latitude and longitude manually.");
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setStartLat(position.coords.latitude.toFixed(5));
+        setStartLng(position.coords.longitude.toFixed(5));
+      },
+      () => Alert.alert("Location blocked", "Permission was denied. Manual location still works."),
+      { enableHighAccuracy: true, timeout: 7000 }
+    );
   }
 
   function updateStopStatus(storeId, status) {
@@ -275,8 +294,8 @@ export default function RepRouteScreen() {
         longitudeDelta: 0.05,
       }
     : {
-        latitude: 18.5592,
-        longitude: 73.7931,
+        latitude: Number(startLat) || Number(DEFAULT_START_LAT),
+        longitude: Number(startLng) || Number(DEFAULT_START_LNG),
         latitudeDelta: 0.1,
         longitudeDelta: 0.1,
       };
@@ -290,13 +309,42 @@ export default function RepRouteScreen() {
 
       <Card style={styles.routeActionCard}>
         <View style={styles.routeActionCopy}>
-          <SectionTitle>Today's Route</SectionTitle>
+          <SectionTitle>Today's Field Plan</SectionTitle>
           <Text style={styles.helperText}>
-            Stops are prioritized by urgency so the highest-risk stores are impossible to miss.
+            RouteGenie selects the best visits from your assigned patch using urgency, expected revenue, and your rep DNA.
           </Text>
         </View>
+        <View style={styles.locationPanel}>
+          <View style={styles.locationHeader}>
+            <Text style={styles.locationTitle}>Start location</Text>
+            <AppButton
+              title="Use GPS"
+              onPress={useBrowserLocation}
+              variant="secondary"
+              style={styles.gpsButton}
+            />
+          </View>
+          <View style={styles.locationInputs}>
+            <TextInput
+              value={startLat}
+              onChangeText={setStartLat}
+              placeholder="Latitude"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="decimal-pad"
+              style={[sharedStyles.input, styles.locationInput]}
+            />
+            <TextInput
+              value={startLng}
+              onChangeText={setStartLng}
+              placeholder="Longitude"
+              placeholderTextColor={colors.textMuted}
+              keyboardType="decimal-pad"
+              style={[sharedStyles.input, styles.locationInput]}
+            />
+          </View>
+        </View>
         <AppButton
-          title={loading ? "Selecting..." : "Generate my route"}
+          title={loading ? "Optimizing..." : "Generate optimal route"}
           onPress={generateRoute}
           disabled={loading}
           style={styles.generateButton}
@@ -304,12 +352,25 @@ export default function RepRouteScreen() {
       </Card>
 
       {route && (
-        <Card style={styles.optimalBadgeCard}>
-          <Text style={styles.optimalBadgeTitle}>
-            {route.recommended_visit_count ?? (route.stores?.length || 0)} of {route.candidate_count ?? (route.stores?.length || 0)} stores selected for today
-          </Text>
-          <Text style={styles.optimalBadgeSubtitle}>
-            Optimized to maximize conversion and prioritize urgency within 8 hours.
+        <Card style={styles.commandCard}>
+          <View style={styles.commandMetric}>
+            <Text style={styles.commandValue}>
+              {route.recommended_visit_count ?? (route.stores?.length || 0)}
+            </Text>
+            <Text style={styles.commandLabel}>optimal visits</Text>
+          </View>
+          <View style={styles.commandMetric}>
+            <Text style={styles.commandValue}>
+              {route.candidate_count ?? assignment?.assigned_count ?? 0}
+            </Text>
+            <Text style={styles.commandLabel}>assigned candidates</Text>
+          </View>
+          <View style={styles.commandMetric}>
+            <Text style={styles.commandValue}>{route.dropped_count ?? 0}</Text>
+            <Text style={styles.commandLabel}>deferred</Text>
+          </View>
+          <Text style={styles.assignmentText}>
+            {assignment?.assignment_reason || "Optimized to maximize conversion and urgency within the workday."}
           </Text>
         </Card>
       )}
@@ -406,6 +467,76 @@ const styles = StyleSheet.create({
   },
   generateButton: {
     alignSelf: "stretch",
+  },
+  locationPanel: {
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+  },
+  locationHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  locationTitle: {
+    color: colors.text,
+    fontSize: type.body,
+    fontWeight: "900",
+  },
+  gpsButton: {
+    minHeight: 34,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+  },
+  locationInputs: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  locationInput: {
+    flex: 1,
+    minWidth: 140,
+    marginBottom: 0,
+  },
+  commandCard: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceRaised,
+    borderColor: colors.borderStrong,
+  },
+  commandMetric: {
+    flex: 1,
+    minWidth: 140,
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  commandValue: {
+    color: colors.primaryDark,
+    fontSize: 24,
+    fontWeight: "900",
+  },
+  commandLabel: {
+    color: colors.textSecondary,
+    fontSize: type.caption,
+    fontWeight: "800",
+    marginTop: spacing.xs,
+    textTransform: "uppercase",
+  },
+  assignmentText: {
+    color: colors.textSecondary,
+    flexBasis: "100%",
+    fontSize: type.body,
+    fontWeight: "700",
+    lineHeight: 21,
+    marginTop: spacing.xs,
   },
   mapCard: {
     opacity: 0.92,

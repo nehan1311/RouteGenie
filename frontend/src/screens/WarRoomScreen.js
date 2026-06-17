@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { ScrollView, StyleSheet, Text, View } from "react-native";
 import MapView, { Marker } from "../components/Map";
 import { api } from "../api/client";
+import { useAuth } from "../auth/AuthContext";
 import {
   AppButton,
   Card,
@@ -16,14 +17,18 @@ import {
 import { theme } from "../theme/colors";
 
 const { colors, spacing, type, radius } = theme;
+const DEFAULT_START_LAT = 19.1360;
+const DEFAULT_START_LNG = 72.8265;
 
 function statusColor(status) {
   return toneForStatus(status).color;
 }
 
 export default function WarRoomScreen() {
+  const { name } = useAuth();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
 
   async function refresh() {
@@ -43,6 +48,10 @@ export default function WarRoomScreen() {
   }, []);
 
   const reps = data?.reps || [];
+  const totalStops = reps.reduce((sum, rep) => sum + rep.stores_total, 0);
+  const completedStops = reps.reduce((sum, rep) => sum + rep.stores_done, 0);
+  const totalRevenue = reps.reduce((sum, rep) => sum + Number(rep.revenue_today || 0), 0);
+  const behindCount = reps.filter((rep) => rep.status === "behind").length;
   const mapRegion = {
     latitude: reps.length > 0 ? reps[0].current_lat : 19.1360,
     longitude: reps.length > 0 ? reps[0].current_lng : 72.8265,
@@ -50,23 +59,79 @@ export default function WarRoomScreen() {
     longitudeDelta: 0.08,
   };
 
+  async function generateTeamRoutes() {
+    setGenerating(true);
+    setError("");
+    const repsResult = await api.getReps();
+    if (repsResult.error) {
+      setError(repsResult.error);
+      setGenerating(false);
+      return;
+    }
+
+    for (const rep of repsResult.data || []) {
+      const assignment = await api.getCandidateStores(rep.id);
+      if (assignment.error) {
+        setError(assignment.error);
+        setGenerating(false);
+        return;
+      }
+      const storeIds = assignment.data?.assigned_store_ids || [];
+      if (storeIds.length > 0) {
+        const generated = await api.generateOptimalRoute(
+          rep.id,
+          storeIds,
+          DEFAULT_START_LAT,
+          DEFAULT_START_LNG
+        );
+        if (generated.error) {
+          setError(generated.error);
+          setGenerating(false);
+          return;
+        }
+      }
+    }
+
+    await refresh();
+    setGenerating(false);
+  }
+
   return (
     <ScrollView style={sharedStyles.screen}>
       <Text style={sharedStyles.title}>Manager War Room</Text>
-      <Text style={sharedStyles.subtitle}>Track all reps live and rebalance workload.</Text>
+      <Text style={sharedStyles.subtitle}>
+        {name ? `${name}'s team control tower.` : "Team control tower."} Track assigned reps, live route progress, and interventions.
+      </Text>
 
-      <AppButton
-        title={loading ? "Refreshing..." : "Refresh Live Status"}
-        onPress={refresh}
-        disabled={loading}
-        style={styles.refreshButton}
-      />
+      <View style={styles.actionRow}>
+        <AppButton
+          title={generating ? "Building routes..." : "Generate team routes"}
+          onPress={generateTeamRoutes}
+          disabled={generating || loading}
+          style={styles.actionButton}
+        />
+        <AppButton
+          title={loading ? "Refreshing..." : "Refresh"}
+          onPress={refresh}
+          disabled={loading || generating}
+          variant="secondary"
+          style={styles.actionButton}
+        />
+      </View>
 
       {loading ? <LoadingState text="Loading war room..." /> : null}
       {error ? <EmptyState text={`Error: ${error}`} /> : null}
 
       {!loading && !error && reps.length === 0 ? (
         <EmptyState text="No rep routes active today. Generate a route first." />
+      ) : null}
+
+      {!loading && !error ? (
+        <View style={styles.kpiGrid}>
+          <StatTile label="Team stops" value={`${completedStops}/${totalStops}`} tone="neutral" />
+          <StatTile label="Revenue today" value={`Rs. ${Math.round(totalRevenue).toLocaleString()}`} tone="success" />
+          <StatTile label="Needs action" value={behindCount} tone={behindCount ? "danger" : "success"} />
+        </View>
       ) : null}
 
       <Card>
@@ -128,7 +193,20 @@ function RepStatusCard({ rep }) {
 }
 
 const styles = StyleSheet.create({
-  refreshButton: {
+  actionRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  actionButton: {
+    flex: 1,
+    minWidth: 180,
+  },
+  kpiGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
     marginBottom: spacing.md,
   },
   mapCard: {

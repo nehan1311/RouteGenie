@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from auth import require_role
 from database import get_db
-from models import Rep
+from models import Rep, User
 from schemas import DnaProfile, RepOut, RepSummary
 
 router = APIRouter(dependencies=[Depends(require_role("rep", "manager"))])
@@ -52,9 +52,25 @@ def build_rep_out(rep: Rep) -> RepOut:
     )
 
 
+def scoped_reps_query(db: Session, current_user: User):
+    query = db.query(Rep)
+    if current_user.role == "manager":
+        return query.filter(Rep.manager_id == current_user.id)
+    if current_user.role == "rep" and current_user.rep_id is not None:
+        return query.filter(Rep.id == current_user.rep_id)
+    return query.filter(False)
+
+
 @router.get("/", response_model=list[RepSummary])
-def read_reps(db: Session = Depends(get_db)):
-    reps = db.query(Rep).all()
+def read_reps(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
+):
+    reps = scoped_reps_query(db, current_user).all()
+    managers = {
+        user.id: user.email
+        for user in db.query(User).filter(User.role == "manager").all()
+    }
     summaries = []
 
     for rep in reps:
@@ -64,6 +80,8 @@ def read_reps(db: Session = Depends(get_db)):
             RepSummary(
                 id=rep.id,
                 name=rep.name,
+                manager_id=rep.manager_id,
+                manager_name=managers.get(rep.manager_id),
                 best_time_window=format_time_window(
                     rep.best_time_window_start,
                     rep.best_time_window_end,
@@ -77,19 +95,35 @@ def read_reps(db: Session = Depends(get_db)):
 
 
 @router.get("/{rep_id}", response_model=RepOut)
-def read_rep(rep_id: int, db: Session = Depends(get_db)):
+def read_rep(
+    rep_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
+):
     rep = db.query(Rep).filter(Rep.id == rep_id).first()
     if rep is None:
         raise HTTPException(status_code=404, detail="Rep not found")
+    if current_user.role == "manager" and rep.manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Rep is not in your team")
+    if current_user.role == "rep" and current_user.rep_id != rep.id:
+        raise HTTPException(status_code=403, detail="Cannot access another rep")
 
     return build_rep_out(rep)
 
 
 @router.get("/{rep_id}/dna")
-def read_rep_dna(rep_id: int, db: Session = Depends(get_db)):
+def read_rep_dna(
+    rep_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
+):
     rep = db.query(Rep).filter(Rep.id == rep_id).first()
     if rep is None:
         raise HTTPException(status_code=404, detail="Rep not found")
+    if current_user.role == "manager" and rep.manager_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Rep is not in your team")
+    if current_user.role == "rep" and current_user.rep_id != rep.id:
+        raise HTTPException(status_code=403, detail="Cannot access another rep")
 
     dna = parse_dna_profile(rep)
     top_store_type, top_conversion_rate = max(
