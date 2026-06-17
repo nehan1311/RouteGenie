@@ -7,9 +7,11 @@ from sqlalchemy.orm import Session
 from auth import require_role
 from database import get_db
 from models import Rep, RouteEntry, Store, User, VisitLog
-from optimizer import generate_route, replan_route
+from optimizer import generate_optimal_route, generate_route, replan_route, haversine_distance
 from schemas import (
     MarkDoneRequest,
+    OptimalRouteRequest,
+    OptimalRouteResponse,
     ReplanRequest,
     ReplanResponse,
     RedistributeRequest,
@@ -22,8 +24,8 @@ from schemas import (
 )
 
 router = APIRouter()
-DEFAULT_START_LAT = 19.1360
-DEFAULT_START_LNG = 72.8265
+DEFAULT_START_LAT = 18.5592
+DEFAULT_START_LNG = 73.7931
 
 
 def ensure_rep_access(current_user: User, rep_id: int):
@@ -256,6 +258,66 @@ def generate_rep_route(
         stores=stores,
         start_lat=request.start_lat,
         start_lng=request.start_lng,
+    )
+    ordered_store_ids = [stop["store_id"] for stop in route_response["route"]]
+
+    today = date.today().isoformat()
+    route_entry = get_active_route_entry(db, request.rep_id, today)
+
+    if route_entry is None:
+        route_entry = RouteEntry(
+            rep_id=request.rep_id,
+            date=today,
+            store_ids_ordered=json.dumps(ordered_store_ids),
+            status="active",
+        )
+        db.add(route_entry)
+    else:
+        route_entry.store_ids_ordered = json.dumps(ordered_store_ids)
+
+    db.commit()
+
+    return route_response
+
+
+@router.post("/generate-optimal", response_model=OptimalRouteResponse)
+def generate_rep_optimal_route(
+    request: OptimalRouteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("rep", "manager")),
+):
+    ensure_rep_access(current_user, request.rep_id)
+
+    if not request.store_ids:
+        raise HTTPException(status_code=400, detail="store_ids cannot be empty")
+
+    rep = db.query(Rep).filter(Rep.id == request.rep_id).first()
+    if rep is None:
+        raise HTTPException(status_code=404, detail="Rep not found")
+
+    candidate_stores = db.query(Store).filter(Store.id.in_(request.store_ids)).all()
+    stores_by_id = {store.id: store for store in candidate_stores}
+    missing_store_ids = [
+        store_id for store_id in request.store_ids if store_id not in stores_by_id
+    ]
+    if missing_store_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Stores not found: {missing_store_ids}",
+        )
+
+    # Compute urgency scores for all candidates
+    stores = [
+        urgency_for_store(stores_by_id[store_id]) for store_id in request.store_ids
+    ]
+
+    route_response = generate_optimal_route(
+        rep=rep_payload(rep),
+        candidate_stores=stores,
+        start_lat=request.start_lat,
+        start_lng=request.start_lng,
+        urgency_weight=request.urgency_weight,
+        revenue_weight=request.revenue_weight,
     )
     ordered_store_ids = [stop["store_id"] for stop in route_response["route"]]
 
@@ -634,19 +696,66 @@ def get_today_route(
     )
     completed_store_ids = {visit_log.store_id for visit_log in visit_logs}
 
+    rep = db.query(Rep).filter(Rep.id == rep_id).first()
+    rep_dna = parse_rep_dna(rep)
+    conversion_rates = rep_dna.get("conversion_rates", {})
+
+    speed_mps = (30 * 1000 / 3600) * rep.area_speed_factor
+    current_time = datetime.combine(date.today(), datetime.strptime("09:00", "%H:%M").time())
+    previous_lat = DEFAULT_START_LAT
+    previous_lng = DEFAULT_START_LNG
+
     route_stores = []
     for order, store_id in enumerate(ordered_store_ids, start=1):
         store = stores_by_id.get(store_id)
         if store is None:
             continue
 
-        payload = store_payload(store)
-        payload["order"] = order
-        payload["urgency_status"] = urgency_for_store(store)["urgency_status"]
-        payload["status"] = (
-            "done" if store_id in completed_store_ids else "pending"
-        )
+        travel_seconds = haversine_distance(
+            previous_lat,
+            previous_lng,
+            store.lat,
+            store.lng,
+        ) / speed_mps
+        travel_time_minutes = round(travel_seconds / 60)
+        current_time += timedelta(minutes=travel_time_minutes)
+
+        rate = conversion_rates.get(store.store_type, 0.0)
+        estimated_revenue = round(store.avg_order_value * rate, 2)
+
+        visit_log = next((log for log in visit_logs if log.store_id == store_id), None)
+
+        payload = {
+            "order": order,
+            "store_id": store.id,
+            "store_name": store.name,
+            "lat": store.lat,
+            "lng": store.lng,
+            "store_type": store.store_type,
+            "urgency_status": urgency_for_store(store)["urgency_status"],
+            "planned_arrival": visit_log.visited_at[11:16] if (visit_log and visit_log.outcome != "cancelled" and len(visit_log.visited_at) >= 16) else current_time.strftime("%H:%M"),
+            "estimated_revenue": estimated_revenue,
+            "status": "done" if store_id in completed_store_ids else ("cancelled" if visit_log and visit_log.outcome == "cancelled" else "pending"),
+        }
         route_stores.append(payload)
+
+        current_time += timedelta(minutes=rep.avg_visit_time_minutes)
+        previous_lat = store.lat
+        previous_lng = store.lng
+
+    # Fetch all stores to calculate candidates vs dropped
+    all_stores = db.query(Store).all()
+    ordered_set = set(ordered_store_ids)
+    dropped_stores = []
+    for s in all_stores:
+        if s.id not in ordered_set:
+            urgency_status = urgency_for_store(s)["urgency_status"]
+            dropped_stores.append({
+                "store_id": s.id,
+                "store_name": s.name,
+                "urgency_status": urgency_status,
+                "reason": "Lower priority today" if urgency_status != "red" else "Time limit reached"
+            })
 
     return {
         "route_id": route_entry.id,
@@ -654,6 +763,10 @@ def get_today_route(
         "date": route_entry.date,
         "status": route_entry.status,
         "stores": route_stores,
+        "recommended_visit_count": len(route_stores),
+        "candidate_count": len(all_stores),
+        "dropped_count": len(dropped_stores),
+        "dropped_stores": dropped_stores,
     }
 
 

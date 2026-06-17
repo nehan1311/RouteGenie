@@ -419,3 +419,196 @@ def rebuild_remaining_stops(
         previous_lng = stop["lng"]
 
     return rebuilt
+
+
+def compute_visit_value(
+    store: dict,
+    urgency_weight: float = 0.6,
+    revenue_weight: float = 0.4,
+    min_est_rev: float = 0.0,
+    max_est_rev: float = 0.0,
+) -> float:
+    # Resolve min/max estimated revenue from store dictionary if not explicitly passed
+    if min_est_rev == 0.0:
+        min_est_rev = store.get("min_est_rev", 0.0)
+    if max_est_rev == 0.0:
+        max_est_rev = store.get("max_est_rev", 0.0)
+
+    # 1. Normalize urgency score (natural range: 0 to ~60)
+    urgency_score = store.get("urgency_score", 0.0)
+    normalized_urgency = (urgency_score / 60.0) * 100.0
+    normalized_urgency = max(0.0, min(100.0, normalized_urgency))
+
+    # 2. Normalize estimated revenue relative to the candidate set's min/max
+    estimated_revenue = store.get("estimated_revenue", 0.0)
+    if max_est_rev > min_est_rev:
+        normalized_revenue = ((estimated_revenue - min_est_rev) / (max_est_rev - min_est_rev)) * 100.0
+    else:
+        normalized_revenue = 100.0
+    normalized_revenue = max(0.0, min(100.0, normalized_revenue))
+
+    # 3. Calculate combined weighted value
+    visit_value = (urgency_weight * normalized_urgency) + (revenue_weight * normalized_revenue)
+    return round(visit_value, 2)
+
+
+def generate_optimal_route(
+    rep: dict,
+    candidate_stores: list[dict],
+    start_lat: float,
+    start_lng: float,
+    urgency_weight: float = 0.6,
+    revenue_weight: float = 0.4,
+) -> dict:
+    # Calculate estimated revenue for every candidate store
+    stores_with_est = []
+    conversion_rates = rep["dna_profile"].get("conversion_rates", {})
+    for store in candidate_stores:
+        s_copy = store.copy()
+        rate = conversion_rates.get(s_copy["store_type"], 0.0)
+        s_copy["estimated_revenue"] = round(s_copy["avg_order_value"] * rate, 2)
+        stores_with_est.append(s_copy)
+
+    # Find min/max estimated revenue across the candidate set
+    est_revenues = [s["estimated_revenue"] for s in stores_with_est]
+    min_est_rev = min(est_revenues) if est_revenues else 0.0
+    max_est_rev = max(est_revenues) if est_revenues else 0.0
+
+    # Calculate visit value for each candidate store
+    for s in stores_with_est:
+        s["visit_value"] = compute_visit_value(
+            s,
+            urgency_weight=urgency_weight,
+            revenue_weight=revenue_weight,
+            min_est_rev=min_est_rev,
+            max_est_rev=max_est_rev,
+        )
+
+    # Build the same locations list (depot + candidate stores) as standard solver
+    locations = [
+        {
+            "store_id": 0,
+            "name": "Depot",
+            "lat": start_lat,
+            "lng": start_lng,
+            "avg_order_value": 0,
+            "store_type": "depot",
+            "urgency_score": 0,
+            "urgency_status": "depot",
+            "visit_value": 0.0,
+        },
+        *stores_with_est,
+    ]
+
+    distance_matrix = compute_distance_matrix(locations)
+
+    # Setup OR-Tools VRP
+    manager = pywrapcp.RoutingIndexManager(len(locations), 1, 0)
+    routing = pywrapcp.RoutingModel(manager)
+
+    def distance_callback(from_index: int, to_index: int) -> int:
+        from_node = manager.IndexToNode(from_index)
+        to_node = manager.IndexToNode(to_index)
+        return int(distance_matrix[from_node][to_node] * 10)
+
+    transit_callback_index = routing.RegisterTransitCallback(distance_callback)
+    routing.SetArcCostEvaluatorOfAllVehicles(transit_callback_index)
+
+    speed_mps = (MUMBAI_AVG_SPEED_KMPH * 1000 / 3600) * rep["area_speed_factor"]
+    service_seconds = int(rep["avg_visit_time_minutes"] * 60)
+
+    def time_callback(from_index: int, to_index: int) -> int:
+        from_node = manager.IndexToNode(from_index)
+        to_node = manager.IndexToNode(to_index)
+        travel_seconds = distance_matrix[from_node][to_node] / speed_mps
+        service_time = 0 if from_node == 0 else service_seconds
+        return int(travel_seconds + service_time)
+
+    time_callback_index = routing.RegisterTransitCallback(time_callback)
+    routing.AddDimension(
+        time_callback_index,
+        0,
+        MAX_ROUTE_SECONDS,
+        True,
+        "Time",
+    )
+
+    # Add disjunctions: make each store optional and penalize exclusion based on scaled visit_value
+    for i in range(1, len(locations)):
+        node_index = manager.NodeToIndex(i)
+        visit_val = locations[i]["visit_value"]
+        penalty = int(visit_val * 1000)
+        routing.AddDisjunction([node_index], penalty)
+
+    search_parameters = pywrapcp.DefaultRoutingSearchParameters()
+    search_parameters.first_solution_strategy = (
+        routing_enums_pb2.FirstSolutionStrategy.AUTOMATIC
+    )
+    search_parameters.time_limit.seconds = 10
+
+    solution = routing.SolveWithParameters(search_parameters)
+
+    fallback_used = False
+    visited_nodes = []
+
+    if solution:
+        ordered_indices = []
+        index = routing.Start(0)
+        while not routing.IsEnd(index):
+            ordered_indices.append(manager.IndexToNode(index))
+            index = solution.Value(routing.NextVar(index))
+        visited_nodes = [locations[idx] for idx in ordered_indices if idx != 0]
+    else:
+        # Naive greedy fallback
+        fallback_used = True
+        current_lat = start_lat
+        current_lng = start_lng
+        current_time_minutes = 0
+        sorted_candidates = sorted(stores_with_est, key=lambda s: s["visit_value"], reverse=True)
+
+        for s in sorted_candidates:
+            dist = haversine_distance(current_lat, current_lng, s["lat"], s["lng"])
+            travel_time_minutes = round((dist / speed_mps) / 60.0)
+            total_time_needed = travel_time_minutes + rep["avg_visit_time_minutes"]
+            
+            if current_time_minutes + total_time_needed <= MAX_ROUTE_SECONDS // 60:
+                visited_nodes.append(s)
+                current_time_minutes += total_time_needed
+                current_lat = s["lat"]
+                current_lng = s["lng"]
+
+    # Map remaining candidate stores to dropped list
+    visited_store_ids = {s["store_id"] for s in visited_nodes}
+    dropped_nodes = [s for s in stores_with_est if s["store_id"] not in visited_store_ids]
+
+    # Rebuild route stops with correct ETA sequence using build_route_response
+    route_res = build_route_response(rep, visited_nodes, locations, distance_matrix)
+
+    dropped_stores_list = [
+        {
+            "store_id": s["store_id"],
+            "store_name": s["name"],
+            "visit_value": s["visit_value"],
+            "urgency_status": s["urgency_status"],
+        }
+        for s in dropped_nodes
+    ]
+    dropped_stores_list.sort(key=lambda s: s["visit_value"], reverse=True)
+
+    return {
+        "rep_id": rep["id"],
+        "rep_name": rep["name"],
+        "date": route_res["date"],
+        "recommended_visit_count": len(visited_nodes),
+        "candidate_count": len(candidate_stores),
+        "dropped_count": len(dropped_nodes),
+        "estimated_total_revenue": route_res["estimated_total_revenue"],
+        "estimated_total_time_minutes": route_res["estimated_total_time_minutes"],
+        "selection_weights": {
+            "urgency_weight": urgency_weight,
+            "revenue_weight": revenue_weight,
+        },
+        "route": route_res["route"],
+        "dropped_stores": dropped_stores_list,
+        "fallback_used": fallback_used,
+    }

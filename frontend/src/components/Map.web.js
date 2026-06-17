@@ -6,6 +6,41 @@ import { colors } from "../theme/colors";
 export const Marker = (props) => null;
 export const Polyline = (props) => null;
 
+function MapMarker({ marker, scaleLng, scaleLat, mapWidth, mapHeight }) {
+  const [hovered, setHovered] = React.useState(false);
+  const x = `${((scaleLng(marker.lng) / mapWidth) * 100).toFixed(2)}%`;
+  const y = `${((scaleLat(marker.lat) / mapHeight) * 100).toFixed(2)}%`;
+  const pulseColor = marker.pinColor;
+
+  return (
+    <View
+      style={[
+        styles.markerContainer,
+        { left: x, top: y, zIndex: hovered ? 999 : 10 }
+      ]}
+      // @ts-ignore - web only hover handlers
+      onMouseEnter={() => setHovered(true)}
+      // @ts-ignore - web only hover handlers
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Glowing Pulse */}
+      <View style={[styles.pulse, { backgroundColor: pulseColor }]} />
+      {/* Solid Pin Pinhead */}
+      <View style={[styles.pin, { backgroundColor: pulseColor }]} />
+      
+      {/* Tooltip Label */}
+      {hovered && (
+        <View style={styles.tooltip}>
+          <Text style={styles.tooltipTitle}>{marker.title}</Text>
+          {marker.description ? (
+            <Text style={styles.tooltipDesc}>{marker.description}</Text>
+          ) : null}
+        </View>
+      )}
+    </View>
+  );
+}
+
 export default function MapView({ children, style, initialRegion }) {
   // Extract markers and polylines from children
   const markers = [];
@@ -110,34 +145,16 @@ export default function MapView({ children, style, initialRegion }) {
       )}
 
       {/* Plot markers */}
-      {markers.map((marker) => {
-        const x = `${((scaleLng(marker.lng) / mapWidth) * 100).toFixed(2)}%`;
-        const y = `${((scaleLat(marker.lat) / mapHeight) * 100).toFixed(2)}%`;
-        const pulseColor = marker.pinColor;
-
-        return (
-          <View
-            key={marker.id}
-            style={[
-              styles.markerContainer,
-              { left: x, top: y }
-            ]}
-          >
-            {/* Glowing Pulse */}
-            <View style={[styles.pulse, { backgroundColor: pulseColor }]} />
-            {/* Solid Pin Pinhead */}
-            <View style={[styles.pin, { backgroundColor: pulseColor }]} />
-            
-            {/* Tooltip Label */}
-            <View style={styles.tooltip}>
-              <Text style={styles.tooltipTitle}>{marker.title}</Text>
-              {marker.description ? (
-                <Text style={styles.tooltipDesc}>{marker.description}</Text>
-              ) : null}
-            </View>
-          </View>
-        );
-      })}
+      {markers.map((marker) => (
+        <MapMarker
+          key={marker.id}
+          marker={marker}
+          scaleLng={scaleLng}
+          scaleLat={scaleLat}
+          mapWidth={mapWidth}
+          mapHeight={mapHeight}
+        />
+      ))}
     </View>
   );
 }

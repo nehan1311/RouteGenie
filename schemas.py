@@ -222,3 +222,35 @@ class UserOut(BaseModel):
     rep_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class OptimalRouteRequest(BaseModel):
+    rep_id: int
+    store_ids: list[int]
+    start_lat: float
+    start_lng: float
+    urgency_weight: float = 0.6
+    revenue_weight: float = 0.4
+
+
+class DroppedStore(BaseModel):
+    store_id: int
+    store_name: str
+    visit_value: float
+    urgency_status: str
+
+
+class OptimalRouteResponse(BaseModel):
+    rep_id: int
+    rep_name: str
+    date: str
+    recommended_visit_count: int
+    candidate_count: int
+    dropped_count: int
+    estimated_total_revenue: float
+    estimated_total_time_minutes: int
+    selection_weights: dict[str, float]
+    route: list[RouteStop]
+    dropped_stores: list[DroppedStore]
+    fallback_used: bool = False
+

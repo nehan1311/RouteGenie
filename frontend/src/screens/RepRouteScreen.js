@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, ScrollView, StyleSheet, Text, View, Linking } from "react-native";
 import MapView, { Marker, Polyline } from "../components/Map";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
@@ -113,12 +113,35 @@ export default function RepRouteScreen() {
   const [loadingText, setLoadingText] = useState("Preparing rep view...");
   const [busyStoreId, setBusyStoreId] = useState(null);
   const [message, setMessage] = useState("");
+  const [showDropped, setShowDropped] = useState(false);
 
   const stops = routeStops(route);
   const coordinates = useMemo(
     () => stops.map((stop) => ({ latitude: stop.lat, longitude: stop.lng })),
     [stops]
   );
+
+  const googleMapsUrl = useMemo(() => {
+    if (!stops || stops.length === 0) return null;
+    const origin = "18.5592,73.7931";
+    const activeStops = stops.filter(s => s.status !== "cancelled");
+    if (activeStops.length === 0) return null;
+    const destination = `${activeStops[activeStops.length - 1].lat},${activeStops[activeStops.length - 1].lng}`;
+    const waypoints = activeStops
+      .slice(0, -1)
+      .map((stop) => `${stop.lat},${stop.lng}`)
+      .join("|");
+    
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${encodeURIComponent(waypoints)}`;
+  }, [stops]);
+
+  const openGoogleMaps = () => {
+    if (googleMapsUrl) {
+      Linking.openURL(googleMapsUrl).catch((err) =>
+        Alert.alert("Error", "Could not open Google Maps: " + err.message)
+      );
+    }
+  };
 
   async function loadRoute() {
     if (!repId) {
@@ -149,30 +172,30 @@ export default function RepRouteScreen() {
   async function generateRoute() {
     if (!repId) return;
     setLoading(true);
-    setLoadingText("Optimizing your route...");
+    setLoadingText("Selecting your optimal stores for today...");
     setMessage("");
 
-    const urgencyResult = await api.getStoreUrgency();
-    if (urgencyResult.error) {
-      setMessage(urgencyResult.error);
-      Alert.alert("Could not load urgency data", urgencyResult.error);
+    const storesResult = await api.getStores();
+    if (storesResult.error) {
+      setMessage(storesResult.error);
+      Alert.alert("Could not load candidate stores", storesResult.error);
       setLoading(false);
       return;
     }
 
-    const candidateStoreIds = selectUrgencyStoreIds(urgencyResult.data);
+    const candidateStoreIds = (storesResult.data || []).map((store) => store.id);
     if (candidateStoreIds.length === 0) {
       setMessage("No stores available for route generation.");
       setLoading(false);
       return;
     }
 
-    const routeResult = await api.generateRoute({
-      rep_id: repId,
-      store_ids: candidateStoreIds,
-      start_lat: 19.1136,
-      start_lng: 72.8697,
-    });
+    const routeResult = await api.generateOptimalRoute(
+      repId,
+      candidateStoreIds,
+      18.5592,
+      73.7931
+    );
 
     if (routeResult.error) {
       setMessage(routeResult.error);
@@ -252,8 +275,8 @@ export default function RepRouteScreen() {
         longitudeDelta: 0.05,
       }
     : {
-        latitude: 19.1360,
-        longitude: 72.8265,
+        latitude: 18.5592,
+        longitude: 73.7931,
         latitudeDelta: 0.1,
         longitudeDelta: 0.1,
       };
@@ -273,12 +296,23 @@ export default function RepRouteScreen() {
           </Text>
         </View>
         <AppButton
-          title={loading ? "Optimizing..." : "Generate my route"}
+          title={loading ? "Selecting..." : "Generate my route"}
           onPress={generateRoute}
           disabled={loading}
           style={styles.generateButton}
         />
       </Card>
+
+      {route && (
+        <Card style={styles.optimalBadgeCard}>
+          <Text style={styles.optimalBadgeTitle}>
+            {route.recommended_visit_count ?? (route.stores?.length || 0)} of {route.candidate_count ?? (route.stores?.length || 0)} stores selected for today
+          </Text>
+          <Text style={styles.optimalBadgeSubtitle}>
+            Optimized to maximize conversion and prioritize urgency within 8 hours.
+          </Text>
+        </Card>
+      )}
 
       {message ? (
         <EmptyState
@@ -288,27 +322,18 @@ export default function RepRouteScreen() {
         />
       ) : null}
 
-      <Card>
-        <SectionTitle>Stops</SectionTitle>
-        {loading ? <LoadingState text={loadingText || "Refreshing route..."} /> : null}
-        {stops.length === 0 ? (
-          <EmptyState text="No stops yet." actionLabel="Generate my route" onAction={generateRoute} />
-        ) : (
-          stops.map((stop, index) => (
-            <StopCard
-              key={stop.store_id}
-              stop={stop}
-              index={index}
-              busyStoreId={busyStoreId}
-              onDone={markDone}
-              onCancel={cancelAndReplan}
-            />
-          ))
-        )}
-      </Card>
-
       <Card style={styles.mapCard}>
-        <SectionTitle>Sales Pulse Map</SectionTitle>
+        <View style={styles.mapHeader}>
+          <SectionTitle>Sales Pulse Map</SectionTitle>
+          {stops.length > 0 && googleMapsUrl && (
+            <AppButton
+              title="🗺️ Track on Google Maps"
+              onPress={openGoogleMaps}
+              variant="secondary"
+              style={styles.trackButton}
+            />
+          )}
+        </View>
         <MapView style={styles.map} initialRegion={initialRegion}>
           {stops.map((stop) => (
             <Marker
@@ -324,6 +349,45 @@ export default function RepRouteScreen() {
           ) : null}
         </MapView>
       </Card>
+
+      <Card>
+        <SectionTitle>Stops</SectionTitle>
+        {loading ? <LoadingState text={loadingText || "Refreshing route..."} /> : null}
+        {stops.length === 0 ? (
+          <EmptyState text="No stops yet." />
+        ) : (
+          stops.map((stop, index) => (
+            <StopCard
+              key={stop.store_id}
+              stop={stop}
+              index={index}
+              busyStoreId={busyStoreId}
+              onDone={markDone}
+              onCancel={cancelAndReplan}
+            />
+          ))
+        )}
+      </Card>
+
+      {route && route.dropped_count > 0 && (
+        <Card style={styles.droppedCard}>
+          <AppButton
+            title={showDropped ? `Hide ${route.dropped_count} dropped stores` : `Show ${route.dropped_count} dropped stores`}
+            onPress={() => setShowDropped(!showDropped)}
+            variant="secondary"
+          />
+          {showDropped && (
+            <View style={styles.droppedList}>
+              {route.dropped_stores && route.dropped_stores.map((store) => (
+                <View key={store.store_id} style={styles.droppedItem}>
+                  <Text style={styles.droppedItemName}>{store.store_name || store.name}</Text>
+                  <Text style={styles.droppedItemReason}>{store.reason || "Lower priority today"}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+        </Card>
+      )}
     </ScrollView>
   );
 }
@@ -346,8 +410,19 @@ const styles = StyleSheet.create({
   mapCard: {
     opacity: 0.92,
   },
+  mapHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.xs,
+  },
+  trackButton: {
+    minHeight: 36,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+  },
   map: {
-    height: 190,
+    height: 400,
     borderRadius: radius.md,
   },
   stopItem: {
@@ -429,5 +504,52 @@ const styles = StyleSheet.create({
   stopButton: {
     flex: 1,
     minWidth: 130,
+  },
+  optimalBadgeCard: {
+    backgroundColor: colors.greenSoft,
+    borderColor: colors.greenBorder,
+    borderWidth: 1,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  optimalBadgeTitle: {
+    color: colors.green,
+    fontSize: type.subheading,
+    fontWeight: "900",
+    textAlign: "center",
+  },
+  optimalBadgeSubtitle: {
+    color: colors.textSecondary,
+    fontSize: type.caption,
+    textAlign: "center",
+    marginTop: spacing.xs,
+  },
+  droppedCard: {
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  droppedList: {
+    marginTop: spacing.sm,
+    gap: spacing.xs,
+  },
+  droppedItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  droppedItemName: {
+    color: colors.text,
+    fontSize: type.body,
+    fontWeight: "700",
+  },
+  droppedItemReason: {
+    color: colors.textSecondary,
+    fontSize: type.caption,
+    fontWeight: "600",
+    textTransform: "uppercase",
   },
 });

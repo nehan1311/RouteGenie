@@ -73,6 +73,16 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  generateOptimalRoute: (repId, storeIds, startLat, startLng) =>
+    request("/routes/generate-optimal", {
+      method: "POST",
+      body: JSON.stringify({
+        rep_id: repId,
+        store_ids: storeIds,
+        start_lat: startLat,
+        start_lng: startLng,
+      }),
+    }),
   replanRoute: (payload) =>
     request("/routes/replan", {
       method: "POST",
