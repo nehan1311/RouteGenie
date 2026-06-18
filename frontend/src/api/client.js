@@ -111,6 +111,7 @@ export const api = {
     request(`/reps/${repId}/reactivate`, {
       method: "POST",
     }),
+  getAutoTuneAnalysis: (repId) => request(`/reps/${repId}/auto-tune-analysis`),
 
   getTodayRoute: (repId) => request(`/routes/${repId}/today`),
   generateRoute: (payload) =>

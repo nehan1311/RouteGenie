@@ -59,6 +59,8 @@ export default function ManageDataScreen() {
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState("");
   const [importProgress, setImportProgress] = useState(null);
+  const [autoTuneLoading, setAutoTuneLoading] = useState(null);
+  const [autoTuneData, setAutoTuneData] = useState(null);
 
   function promptLogout() {
     if (Platform.OS === "web") {
@@ -111,6 +113,37 @@ export default function ManageDataScreen() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleAutoTune(repId) {
+    setAutoTuneLoading(repId);
+    const { data, error } = await api.getAutoTuneAnalysis(repId);
+    setAutoTuneLoading(null);
+    if (error) {
+      if (Platform.OS === "web") window.alert(error);
+      else Alert.alert("Auto-Tune Failed", error);
+    } else {
+      setAutoTuneData(data);
+    }
+  }
+
+  async function applyAutoTune() {
+    if (!autoTuneData) return;
+    const { rep_id, recommendations } = autoTuneData;
+    setSubmitting(true);
+    const { data, error } = await api.updateRep(rep_id, {
+      area_speed_factor: recommendations.new_speed_factor,
+      avg_visit_time_minutes: recommendations.new_avg_visit_time,
+    });
+    setSubmitting(false);
+    if (error) {
+       if (Platform.OS === "web") window.alert(error);
+       else Alert.alert("Apply failed", error);
+    } else {
+       showToast("AI Recommendations applied!", "success");
+       setAutoTuneData(null);
+       loadData();
     }
   }
 
@@ -322,7 +355,18 @@ export default function ManageDataScreen() {
                   <Text style={styles.detail}>Speed factor: {item.area_speed_factor}x</Text>
                 </>
               )}
-              <AppButton title="Edit" variant="secondary" onPress={() => (isStore ? openStoreEdit(item) : openRepEdit(item))} style={styles.editBtn} />
+              <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                <AppButton title="Edit details" variant="primary" onPress={() => (isStore ? openStoreEdit(item) : openRepEdit(item))} style={styles.editBtn} />
+                {!isStore && (
+                  <AppButton 
+                    title={autoTuneLoading === item.id ? "Analyzing..." : "AI Auto-Tune"} 
+                    variant="secondary" 
+                    onPress={() => handleAutoTune(item.id)} 
+                    style={styles.editBtn} 
+                    loading={autoTuneLoading === item.id} 
+                  />
+                )}
+              </View>
             </View>
           ) : null}
         </Pressable>
@@ -468,6 +512,47 @@ export default function ManageDataScreen() {
         </View>
       </Modal>
 
+      <Modal visible={!!autoTuneData} animationType="fade" transparent onRequestClose={() => setAutoTuneData(null)}>
+        <View style={styles.sheetBackdrop}>
+          <View style={[styles.sheet, { maxWidth: 500 }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: spacing.lg }}>
+              <Text style={styles.sheetTitle}>AI Performance Analysis</Text>
+              <Pressable onPress={() => setAutoTuneData(null)}>
+                <Ionicons name="close" size={24} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+
+            {autoTuneData && (
+              <ScrollView style={{ maxHeight: 400 }}>
+                <View style={{ backgroundColor: colors.surface, padding: spacing.md, borderRadius: radius.card, marginBottom: spacing.md }}>
+                  <Text style={{ color: colors.textSecondary, fontFamily: fonts.bold, fontSize: 12, textTransform: "uppercase", marginBottom: 4 }}>Historical Data ({autoTuneData.historical_data.trips_analyzed} trips)</Text>
+                  <Text style={{ color: colors.text, fontFamily: fonts.body, fontSize: 14 }}>Avg traffic delay: {autoTuneData.historical_data.avg_traffic_delay_mins}m</Text>
+                  <Text style={{ color: colors.text, fontFamily: fonts.body, fontSize: 14 }}>Avg store dwell time: {autoTuneData.historical_data.avg_store_dwell_time_mins}m</Text>
+                </View>
+
+                <View style={{ marginBottom: spacing.md }}>
+                  <Text style={{ color: colors.textSecondary, fontFamily: fonts.bold, fontSize: 12, textTransform: "uppercase", marginBottom: spacing.sm }}>Insights</Text>
+                  {autoTuneData.insights.map((insight, idx) => (
+                    <View key={idx} style={{ flexDirection: "row", gap: spacing.sm, marginBottom: spacing.sm }}>
+                      <Ionicons name="bulb" size={16} color={colors.primary} style={{ marginTop: 2 }} />
+                      <Text style={{ color: colors.text, fontFamily: fonts.body, fontSize: 14, flex: 1 }}>{insight}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={{ backgroundColor: "rgba(99, 91, 223, 0.1)", borderWidth: 1, borderColor: colors.primary, padding: spacing.md, borderRadius: radius.card, marginBottom: spacing.lg }}>
+                  <Text style={{ color: colors.primary, fontFamily: fonts.bold, fontSize: 12, textTransform: "uppercase", marginBottom: spacing.sm }}>Recommendations</Text>
+                  <Text style={{ color: colors.text, fontFamily: fonts.medium, fontSize: 14 }}>New Speed Factor: {autoTuneData.recommendations.new_speed_factor}x</Text>
+                  <Text style={{ color: colors.text, fontFamily: fonts.medium, fontSize: 14 }}>New Avg Visit Time: {autoTuneData.recommendations.new_avg_visit_time}m</Text>
+                </View>
+
+                <AppButton title="Apply Recommendations" onPress={applyAutoTune} loading={submitting} />
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
       <HelpFab title="Manage Data" description="CRUD for stores and reps — search, swipe to edit/deactivate, FAB to add, CSV import for bulk stores." />
     </View>
   );
@@ -504,7 +589,7 @@ const styles = StyleSheet.create({
   rowMeta: { color: colors.textSecondary, fontFamily: fonts.body, fontSize: 12, marginTop: 4 },
   expanded: { marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.border },
   detail: { color: colors.textSecondary, fontFamily: fonts.body, fontSize: 12, marginBottom: 4 },
-  editBtn: { marginTop: spacing.sm },
+  editBtn: { marginTop: spacing.md, alignSelf: "flex-start" },
   swipeActions: { flexDirection: "row", marginBottom: spacing.sm },
   swipeEdit: { backgroundColor: colors.primary, justifyContent: "center", paddingHorizontal: spacing.lg, borderRadius: radius.button, marginRight: spacing.xs },
   swipeDelete: { backgroundColor: colors.danger, justifyContent: "center", paddingHorizontal: spacing.lg, borderRadius: radius.button },

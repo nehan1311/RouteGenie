@@ -456,3 +456,20 @@ class NudgeRequest(BaseModel):
 class NudgeResponse(BaseModel):
     status: str
     message: str
+
+
+class AutoTuneHistoricalData(BaseModel):
+    trips_analyzed: int
+    avg_traffic_delay_mins: int
+    avg_store_dwell_time_mins: int
+
+class AutoTuneRecommendations(BaseModel):
+    new_speed_factor: float
+    new_avg_visit_time: int
+
+class AutoTuneAnalysis(BaseModel):
+    rep_id: int
+    rep_name: str
+    historical_data: AutoTuneHistoricalData
+    insights: list[str]
+    recommendations: AutoTuneRecommendations
