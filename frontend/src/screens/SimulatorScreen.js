@@ -262,18 +262,18 @@ export default function SimulatorScreen() {
             <View style={styles.resultRow}>
               <Card style={styles.resultCard}>
                 <Text style={styles.resultLabel}>Baseline</Text>
-                <Text style={styles.resultMetric}>{simResult.baseline?.stop_count} stops</Text>
-                <Text style={styles.resultSub}>Rs.{simResult.baseline?.total_revenue?.toLocaleString()}</Text>
-                <Text style={styles.resultSub}>{simResult.baseline?.total_time_minutes}m</Text>
+                <Text style={styles.resultMetric}>{simResult.original?.store_count} stops</Text>
+                <Text style={styles.resultSub}>Rs.{simResult.original?.estimated_revenue?.toLocaleString()}</Text>
+                <Text style={styles.resultSub}>{simResult.original?.estimated_time_minutes}m</Text>
               </Card>
               <Card style={styles.resultCard} elevated>
                 <Text style={styles.resultLabel}>Simulated</Text>
-                <Text style={styles.resultMetric}>{simResult.simulated?.stop_count} stops</Text>
+                <Text style={styles.resultMetric}>{simResult.simulated?.store_count} stops</Text>
                 <Text style={[styles.resultSub, { color: colors.success }]}>
-                  Rs.{simResult.simulated?.total_revenue?.toLocaleString()}
+                  Rs.{simResult.simulated?.estimated_revenue?.toLocaleString()}
                 </Text>
                 <Text style={[styles.resultSub, simResult.delta?.time_minutes < 0 ? { color: colors.success } : { color: colors.danger }]}>
-                  {simResult.simulated?.total_time_minutes}m
+                  {simResult.simulated?.estimated_time_minutes}m
                 </Text>
               </Card>
             </View>
@@ -303,8 +303,8 @@ export default function SimulatorScreen() {
             </Pressable>
             {showDetails ? (
               <Card>
-                <Text style={styles.detailLine}>Baseline stops: {simResult.baseline?.stop_count}</Text>
-                <Text style={styles.detailLine}>Simulated stops: {simResult.simulated?.stop_count}</Text>
+                <Text style={styles.detailLine}>Baseline stops: {simResult.original?.store_count}</Text>
+                <Text style={styles.detailLine}>Simulated stops: {simResult.simulated?.store_count}</Text>
                 <Text style={styles.detailLine}>Revenue delta: Rs.{simResult.delta?.revenue}</Text>
               </Card>
             ) : null}

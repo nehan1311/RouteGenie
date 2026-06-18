@@ -13,7 +13,7 @@ export function setAuthToken(token) {
 import { getDemoMockResponse, shouldUseDemoMock } from "./demoMock";
 
 async function request(path, options = {}) {
-  if (shouldUseDemoMock()) {
+  if (!options.bypassDemo && shouldUseDemoMock()) {
     return getDemoMockResponse(path, options);
   }
 
@@ -139,7 +139,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  getWarRoom: () => request("/routes/manager/war-room"),
+  getWarRoom: () => request("/routes/manager/war-room", { bypassDemo: true }),
   nudgeRep: (repId, message = null) =>
     request("/routes/manager/nudge", {
       method: "POST",

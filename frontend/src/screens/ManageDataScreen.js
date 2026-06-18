@@ -61,6 +61,8 @@ export default function ManageDataScreen() {
   const [importProgress, setImportProgress] = useState(null);
   const [autoTuneLoading, setAutoTuneLoading] = useState(null);
   const [autoTuneData, setAutoTuneData] = useState(null);
+  const [addressSearch, setAddressSearch] = useState("");
+  const [addressLoading, setAddressLoading] = useState(false);
 
   function promptLogout() {
     if (Platform.OS === "web") {
@@ -147,6 +149,25 @@ export default function ManageDataScreen() {
     }
   }
 
+  async function searchGeocode() {
+    if (!addressSearch.trim()) return;
+    setAddressLoading(true);
+    try {
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(addressSearch)}`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        setStoreForm(p => ({ ...p, lat: String(data[0].lat), lng: String(data[0].lon) }));
+        showToast("Location found!", "success");
+      } else {
+        showToast("Address not found on map", "error");
+      }
+    } catch (e) {
+      showToast("Search failed", "error");
+    } finally {
+      setAddressLoading(false);
+    }
+  }
+
   useEffect(() => {
     loadData();
     setSearch("");
@@ -167,12 +188,14 @@ export default function ManageDataScreen() {
 
   function openStoreCreate() {
     setFormError("");
+    setAddressSearch("");
     setStoreForm({ id: null, name: "", lat: "", lng: "", avg_order_value: "", store_type: "general", base_priority: 2 });
     setSheetVisible(true);
   }
 
   function openStoreEdit(store) {
     setFormError("");
+    setAddressSearch("");
     setStoreForm({
       id: store.id,
       name: store.name,
@@ -452,7 +475,26 @@ export default function ManageDataScreen() {
             <ScrollView style={styles.formScroll}>
               {isStoreTab ? (
                 <>
-                  <Text style={styles.fieldLabel}>Tap map to pick location</Text>
+                  <Text style={styles.fieldLabel}>Search Location</Text>
+                  <View style={{ flexDirection: "row", gap: spacing.sm, marginBottom: spacing.md }}>
+                    <TextInput 
+                      style={[sharedStyles.input, { flex: 1, marginBottom: 0 }]} 
+                      value={addressSearch} 
+                      onChangeText={setAddressSearch} 
+                      placeholder="e.g. Bandra Kurla Complex, Mumbai" 
+                      placeholderTextColor={colors.textMuted} 
+                      onSubmitEditing={searchGeocode}
+                    />
+                    <AppButton 
+                      title={addressLoading ? "..." : "Search"} 
+                      onPress={searchGeocode} 
+                      variant="primary" 
+                      loading={addressLoading}
+                      style={{ paddingHorizontal: spacing.md }}
+                    />
+                  </View>
+
+                  <Text style={styles.fieldLabel}>Or tap map to pick location</Text>
                   <Map
                     style={{ height: 180, marginBottom: spacing.md, borderRadius: radius.card }}
                     onMapClick={(lat, lng) => setStoreForm((p) => ({ ...p, lat: String(lat), lng: String(lng) }))}
@@ -635,7 +677,12 @@ const styles = StyleSheet.create({
   dialogFooter: { flexDirection: "row", gap: spacing.md },
   fieldLabel: { color: colors.textMuted, fontFamily: fonts.medium, fontSize: 12, marginBottom: 6 },
   pickerShell: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.button, marginBottom: spacing.md, overflow: "hidden" },
-  picker: { color: colors.text },
+  picker: { 
+    color: colors.text,
+    ...Platform.select({
+      web: { outlineStyle: "none", backgroundColor: colors.surface },
+    })
+  },
   formError: { color: colors.danger, marginBottom: spacing.sm, fontFamily: fonts.medium },
   deactivateLink: { color: colors.danger, textAlign: "center", marginTop: spacing.md, fontFamily: fonts.medium },
   error: { color: colors.danger, marginBottom: spacing.md },

@@ -266,7 +266,11 @@ export default function WarRoomScreen() {
               <AvatarCircle name={rep.rep_name} size={28} />
               <View style={styles.activityCopy}>
                 <Text style={styles.activityText}>{message}</Text>
-                <Text style={styles.activityTime}>{new Date(rep.last_active || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
+                <Text style={styles.activityTime}>
+                  {rep.last_active === "No activity"
+                    ? "No activity"
+                    : new Date(rep.last_active || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </Text>
               </View>
               {behind ? (
                 <Pressable onPress={() => handleNudge(rep)} style={styles.nudgeBtn}>
