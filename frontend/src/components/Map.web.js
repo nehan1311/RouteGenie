@@ -1,12 +1,11 @@
 import React from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 import { colors } from "../theme/colors";
 
+// Marker and Polyline are dummy components on Web, 
+// MapView parses their props using React.Children
 export const Marker = () => null;
 export const Polyline = () => null;
-
-const MAP_WIDTH = 350;
-const MAP_HEIGHT = 240;
 
 function getChildMapData(children) {
   const markers = [];
@@ -37,114 +36,134 @@ function getChildMapData(children) {
   return { markers, polylineCoords };
 }
 
-function getBounds(points, initialRegion) {
-  if (points.length === 0 && initialRegion) {
-    const latDelta = initialRegion.latitudeDelta || 0.04;
-    const lngDelta = initialRegion.longitudeDelta || 0.04;
-    return {
-      minLat: initialRegion.latitude - latDelta / 2,
-      maxLat: initialRegion.latitude + latDelta / 2,
-      minLng: initialRegion.longitude - lngDelta / 2,
-      maxLng: initialRegion.longitude + lngDelta / 2,
-    };
-  }
-
-  let minLat = points.length ? Math.min(...points.map((point) => point.lat)) : 18.545;
-  let maxLat = points.length ? Math.max(...points.map((point) => point.lat)) : 18.575;
-  let minLng = points.length ? Math.min(...points.map((point) => point.lng)) : 73.785;
-  let maxLng = points.length ? Math.max(...points.map((point) => point.lng)) : 73.815;
-
-  const latDelta = Math.max(maxLat - minLat, 0.01);
-  const lngDelta = Math.max(maxLng - minLng, 0.01);
-
-  minLat -= latDelta * 0.25;
-  maxLat += latDelta * 0.25;
-  minLng -= lngDelta * 0.25;
-  maxLng += lngDelta * 0.25;
-
-  return { minLat, maxLat, minLng, maxLng };
-}
-
-function scalePoint(point, bounds) {
-  const latRange = Math.max(bounds.maxLat - bounds.minLat, 0.0001);
-  const lngRange = Math.max(bounds.maxLng - bounds.minLng, 0.0001);
-
-  return {
-    x: ((point.lng - bounds.minLng) / lngRange) * MAP_WIDTH,
-    y: MAP_HEIGHT - ((point.lat - bounds.minLat) / latRange) * MAP_HEIGHT,
-  };
-}
-
-function MapMarker({ marker, bounds }) {
-  const [hovered, setHovered] = React.useState(false);
-  const point = scalePoint(marker, bounds);
-  const left = `${((point.x / MAP_WIDTH) * 100).toFixed(2)}%`;
-  const top = `${((point.y / MAP_HEIGHT) * 100).toFixed(2)}%`;
-
-  return (
-    <View
-      style={[styles.markerContainer, { left, top, zIndex: hovered ? 100 : 10 }]}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <View style={[styles.markerHalo, { backgroundColor: marker.pinColor }]} />
-      <View style={[styles.markerPin, { backgroundColor: marker.pinColor }]} />
-      {hovered ? (
-        <View style={styles.tooltip}>
-          <Text style={styles.tooltipTitle}>{marker.title}</Text>
-          {marker.description ? <Text style={styles.tooltipDesc}>{marker.description}</Text> : null}
-        </View>
-      ) : null}
-    </View>
-  );
-}
-
-function RouteLine({ coordinates, bounds }) {
-  if (coordinates.length < 2) return null;
-
-  const points = coordinates
-    .map((coordinate) => {
-      const point = scalePoint(coordinate, bounds);
-      return `${point.x.toFixed(1)},${point.y.toFixed(1)}`;
-    })
-    .join(" ");
-
-  return (
-    <svg style={styles.svg} viewBox={`0 0 ${MAP_WIDTH} ${MAP_HEIGHT}`} width="100%" height="100%">
-      <polyline
-        points={points}
-        fill="none"
-        stroke="#635BDF"
-        strokeWidth="4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeDasharray="7,7"
-      />
-    </svg>
-  );
-}
-
-export default function MapView({ children, style, initialRegion }) {
+export default function MapView({ children, style }) {
   const { markers, polylineCoords } = getChildMapData(children);
-  const bounds = getBounds([...markers, ...polylineCoords], initialRegion);
-  const mapUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${bounds.minLng},${bounds.minLat},${bounds.maxLng},${bounds.maxLat}&layer=mapnik`;
+
+  // We build a self-contained Leaflet HTML/JS document to render inside the iframe.
+  // This guarantees perfect coordinate alignment between the map tiles and the markers/polyline overlays,
+  // resolving the misalignment issue where percentage-based overlays didn't match OSM discrete zoom levels.
+  const leafletSrcDoc = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <style>
+        html, body, #map {
+          height: 100%;
+          margin: 0;
+          padding: 0;
+          background-color: #0F1117;
+        }
+        .custom-tooltip {
+          background-color: #111111 !important;
+          color: #ffffff !important;
+          border: none !important;
+          border-radius: 8px !important;
+          padding: 8px 10px !important;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+          font-size: 11px !important;
+          font-weight: 700;
+          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+          opacity: 0.95 !important;
+        }
+        .custom-tooltip::before {
+          border-top-color: #111111 !important;
+        }
+        .leaflet-control-attribution {
+          font-size: 9px !important;
+        }
+      </style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <script>
+        var map = L.map('map', {
+          zoomControl: true,
+          scrollWheelZoom: true
+        }).setView([19.1136, 72.8697], 14);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+          maxZoom: 19,
+          attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
+        }).addTo(map);
+
+        var markersData = ${JSON.stringify(markers)};
+        var polylineData = ${JSON.stringify(polylineCoords)};
+
+        var bounds = [];
+
+        // Add polyline if present
+        if (polylineData.length > 1) {
+          var latlngs = polylineData.map(function(pt) {
+            return [pt.lat, pt.lng];
+          });
+          var polyline = L.polyline(latlngs, {
+            color: '#635BDF',
+            weight: 4,
+            dashArray: '7, 7',
+            lineCap: 'round',
+            lineJoin: 'round'
+          }).addTo(map);
+          
+          polylineData.forEach(function(pt) {
+            bounds.push([pt.lat, pt.lng]);
+          });
+        }
+
+        // Add markers
+        markersData.forEach(function(m) {
+          if (!m.lat || !m.lng) return;
+          bounds.push([m.lat, m.lng]);
+
+          var markerHtml = '<div style="position: relative; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center;">' +
+            '<div style="position: absolute; width: 24px; height: 24px; border-radius: 50%; background-color: ' + m.pinColor + '; opacity: 0.24;"></div>' +
+            '<div style="position: absolute; width: 12px; height: 12px; border-radius: 50%; background-color: ' + m.pinColor + '; border: 2px solid #ffffff; box-shadow: 0 2px 4px rgba(0,0,0,0.3);"></div>' +
+            '</div>';
+
+          var customIcon = L.divIcon({
+            html: markerHtml,
+            className: 'custom-marker-icon',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+          });
+
+          var marker = L.marker([m.lat, m.lng], { icon: customIcon }).addTo(map);
+
+          var tooltipText = '<b>' + m.title + '</b>';
+          if (m.description) {
+            tooltipText += '<br/><span style="font-weight: 500; opacity: 0.85; font-size: 9px;">' + m.description + '</span>';
+          }
+
+          marker.bindTooltip(tooltipText, {
+            direction: 'top',
+            offset: [0, -10],
+            className: 'custom-tooltip'
+          });
+        });
+
+        // Fit map bounds to show all markers/polylines
+        if (bounds.length > 0) {
+          map.fitBounds(bounds, {
+            padding: [30, 30],
+            maxZoom: 16
+          });
+        }
+      </script>
+    </body>
+    </html>
+  `;
 
   return (
     <View style={[styles.container, style]}>
       {React.createElement("iframe", {
-        src: mapUrl,
+        srcDoc: leafletSrcDoc,
         title: "RouteGenie live map",
         style: styles.iframe,
         loading: "lazy",
       })}
-      <View pointerEvents="none" style={styles.tint} />
-      <RouteLine coordinates={polylineCoords} bounds={bounds} />
-      {markers.map((marker) => (
-        <MapMarker key={marker.id} marker={marker} bounds={bounds} />
-      ))}
-      <View style={styles.mapBadge}>
-        <Text style={styles.mapBadgeText}>LIVE MAP</Text>
-      </View>
     </View>
   );
 }
@@ -167,87 +186,5 @@ const styles = StyleSheet.create({
     height: "100%",
     borderWidth: 0,
     borderStyle: "none",
-  },
-  tint: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255, 255, 255, 0.08)",
-  },
-  svg: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 2,
-    pointerEvents: "none",
-  },
-  markerContainer: {
-    position: "absolute",
-    width: 24,
-    height: 24,
-    marginLeft: -12,
-    marginTop: -12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  markerHalo: {
-    position: "absolute",
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    opacity: 0.24,
-  },
-  markerPin: {
-    width: 13,
-    height: 13,
-    borderRadius: 7,
-    borderWidth: 2,
-    borderColor: "#FFFFFF",
-    shadowColor: "#111111",
-    shadowOpacity: 0.22,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 4 },
-  },
-  tooltip: {
-    position: "absolute",
-    bottom: 26,
-    minWidth: 120,
-    maxWidth: 180,
-    backgroundColor: "#111111",
-    borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    alignItems: "center",
-    shadowColor: "#111111",
-    shadowOpacity: 0.18,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 5 },
-  },
-  tooltipTitle: {
-    color: "#FFFFFF",
-    fontSize: 11,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  tooltipDesc: {
-    color: "#D8D4CB",
-    fontSize: 9,
-    textAlign: "center",
-    marginTop: 2,
-  },
-  mapBadge: {
-    position: "absolute",
-    left: 12,
-    top: 12,
-    borderRadius: 999,
-    backgroundColor: "rgba(17, 17, 17, 0.82)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  mapBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "900",
-    letterSpacing: 0,
   },
 });

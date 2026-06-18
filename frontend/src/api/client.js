@@ -10,7 +10,13 @@ export function setAuthToken(token) {
   authToken = token;
 }
 
+import { getDemoMockResponse, shouldUseDemoMock } from "./demoMock";
+
 async function request(path, options = {}) {
+  if (shouldUseDemoMock()) {
+    return getDemoMockResponse(path, options);
+  }
+
   try {
     const headers = {
       "Content-Type": "application/json",
@@ -54,18 +60,57 @@ async function request(path, options = {}) {
 export const api = {
   healthCheck: () => request("/health"),
 
-  getStores: () => request("/stores/"),
-  getStoreUrgency: () => request("/stores/urgency"),
+  getStores: (includeInactive = false) =>
+    request(`/stores/${includeInactive ? "?include_inactive=true" : ""}`),
+  getStoreUrgency: (includeInactive = false) =>
+    request(`/stores/urgency${includeInactive ? "?include_inactive=true" : ""}`),
   getStore: (storeId) => request(`/stores/${storeId}`),
   logVisit: (payload) =>
     request("/stores/visit", {
       method: "POST",
       body: JSON.stringify(payload),
     }),
+  createStore: (storeData) =>
+    request("/stores/", {
+      method: "POST",
+      body: JSON.stringify(storeData),
+    }),
+  updateStore: (storeId, partialData) =>
+    request(`/stores/${storeId}`, {
+      method: "PUT",
+      body: JSON.stringify(partialData),
+    }),
+  deactivateStore: (storeId) =>
+    request(`/stores/${storeId}`, {
+      method: "DELETE",
+    }),
+  reactivateStore: (storeId) =>
+    request(`/stores/${storeId}/reactivate`, {
+      method: "POST",
+    }),
 
-  getReps: () => request("/reps/"),
+  getReps: (includeInactive = false) =>
+    request(`/reps/${includeInactive ? "?include_inactive=true" : ""}`),
   getRep: (repId) => request(`/reps/${repId}`),
   getRepDna: (repId) => request(`/reps/${repId}/dna`),
+  createRep: (repData) =>
+    request("/reps/", {
+      method: "POST",
+      body: JSON.stringify(repData),
+    }),
+  updateRep: (repId, partialData) =>
+    request(`/reps/${repId}`, {
+      method: "PUT",
+      body: JSON.stringify(partialData),
+    }),
+  deactivateRep: (repId) =>
+    request(`/reps/${repId}`, {
+      method: "DELETE",
+    }),
+  reactivateRep: (repId) =>
+    request(`/reps/${repId}/reactivate`, {
+      method: "POST",
+    }),
 
   getTodayRoute: (repId) => request(`/routes/${repId}/today`),
   generateRoute: (payload) =>
@@ -94,6 +139,11 @@ export const api = {
       body: JSON.stringify(payload),
     }),
   getWarRoom: () => request("/routes/manager/war-room"),
+  nudgeRep: (repId, message = null) =>
+    request("/routes/manager/nudge", {
+      method: "POST",
+      body: JSON.stringify({ rep_id: repId, message }),
+    }),
   redistribute: (payload) =>
     request("/routes/manager/redistribute", {
       method: "POST",

@@ -1,4 +1,5 @@
 import { API_BASE_URL } from "./client";
+import { shouldUseDemoMock } from "./demoMock";
 
 async function parseJson(response) {
   return response.json().catch(() => null);
@@ -13,6 +14,16 @@ function errorFromResponse(response, payload) {
 }
 
 export async function login(email, password) {
+  if (shouldUseDemoMock()) {
+    if (email === "manager@routegenie.com" && password === "manager123") {
+      return { data: { access_token: "demo-token-manager", role: "manager", rep_id: null, name: "Manager" }, error: null, status: 200 };
+    }
+    if (email === "raj@routegenie.com" && password === "rep123") {
+      return { data: { access_token: "demo-token-rep", role: "rep", rep_id: 1, name: "Raj" }, error: null, status: 200 };
+    }
+    return { data: null, error: "Incorrect email or password", status: 401 };
+  }
+
   const body = new URLSearchParams();
   body.append("username", email);
   body.append("password", password);
@@ -46,6 +57,16 @@ export async function login(email, password) {
 }
 
 export async function getMe(token) {
+  if (shouldUseDemoMock()) {
+    if (token === "demo-token-manager") {
+      return { data: { email: "manager@routegenie.com", role: "manager", rep_id: null, name: "Manager" }, error: null, status: 200 };
+    }
+    if (token === "demo-token-rep") {
+      return { data: { email: "raj@routegenie.com", role: "rep", rep_id: 1, name: "Raj" }, error: null, status: 200 };
+    }
+    return { data: null, error: "Unauthorized", status: 401 };
+  }
+
   try {
     const response = await fetch(`${API_BASE_URL}/auth/me`, {
       headers: {

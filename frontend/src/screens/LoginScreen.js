@@ -1,25 +1,81 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from "react-native";
 import { useAuth } from "../auth/AuthContext";
-import { AppButton, Card, sharedStyles } from "../components/UI";
+import { useDemo } from "../context/DemoContext";
+import { AppButton, DarkInput } from "../components/UI";
 import { theme } from "../theme/colors";
+import { fonts } from "../theme/fonts";
 
-const { colors, spacing, type, radius } = theme;
+const { colors, spacing, radius } = theme;
+
+function FadeSlideIn({ delay = 0, children, style }) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(16)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 300, delay, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: 300, delay, useNativeDriver: true }),
+    ]).start();
+  }, [delay, opacity, translateY]);
+
+  return (
+    <Animated.View style={[{ opacity, transform: [{ translateY }] }, style]}>
+      {children}
+    </Animated.View>
+  );
+}
 
 export default function LoginScreen() {
   const { login } = useAuth();
+  const { enableDemoMode } = useDemo();
   const [email, setEmail] = useState("manager@routegenie.com");
   const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const cardShift = useRef(new Animated.Value(0)).current;
+  const errorSlide = useRef(new Animated.Value(-40)).current;
+  const errorOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const onShow = () => {
+      Animated.timing(cardShift, { toValue: -40, duration: 300, useNativeDriver: true }).start();
+    };
+    const onHide = () => {
+      Animated.timing(cardShift, { toValue: 0, duration: 300, useNativeDriver: true }).start();
+    };
+
+    const showSub = Keyboard.addListener(showEvent, onShow);
+    const hideSub = Keyboard.addListener(hideEvent, onHide);
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, [cardShift]);
+
+  useEffect(() => {
+    if (!error) return;
+    errorSlide.setValue(-40);
+    errorOpacity.setValue(0);
+    Animated.parallel([
+      Animated.timing(errorSlide, { toValue: 0, duration: 300, useNativeDriver: true }),
+      Animated.timing(errorOpacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+    ]).start();
+  }, [error, errorOpacity, errorSlide]);
 
   async function handleLogin() {
     if (!email.trim() || !password) {
@@ -38,58 +94,90 @@ export default function LoginScreen() {
     setSubmitting(false);
   }
 
+  function handleDemoLink() {
+    setEmail("manager@routegenie.com");
+    setPassword("manager123");
+    setError("");
+  }
+
+  function handleLogoLongPress() {
+    enableDemoMode();
+    setError("");
+  }
+
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       style={styles.container}
     >
-      <View style={styles.content}>
-        <View style={styles.brandMark}>
-          <Text style={styles.brandMarkText}>RG</Text>
-        </View>
-        <Text style={[sharedStyles.title, styles.title]}>RouteGenie</Text>
-        <Text style={[sharedStyles.subtitle, styles.subtitle]}>
-          Sign in to your route workspace.
-        </Text>
+      <View style={styles.topHalf}>
+        <Pressable onLongPress={handleLogoLongPress} delayLongPress={800}>
+          <FadeSlideIn delay={0}>
+            <View style={styles.brandMark}>
+              <Text style={styles.brandMarkText}>RG</Text>
+            </View>
+          </FadeSlideIn>
+        </Pressable>
+        <FadeSlideIn delay={150}>
+          <Text style={styles.title}>RouteGenie</Text>
+        </FadeSlideIn>
+        <FadeSlideIn delay={300}>
+          <Text style={styles.tagline}>Field intelligence, optimised</Text>
+        </FadeSlideIn>
+      </View>
 
-        <Card style={styles.card}>
-          <View style={styles.accent} />
-          <Text style={styles.label}>Email</Text>
-          <TextInput
+      <Animated.View style={[styles.bottomHalf, { transform: [{ translateY: cardShift }] }]}>
+        <View style={styles.loginCard}>
+          {error ? (
+            <Animated.View
+              style={[
+                styles.errorPill,
+                { opacity: errorOpacity, transform: [{ translateY: errorSlide }] },
+              ]}
+            >
+              <Text style={styles.errorText}>{error}</Text>
+            </Animated.View>
+          ) : null}
+
+          <Text style={styles.cardHeading}>Welcome back</Text>
+
+          <DarkInput
             autoCapitalize="none"
             autoComplete="email"
             keyboardType="email-address"
+            icon="mail-outline"
             onChangeText={setEmail}
-            placeholder="you@routegenie.com"
-            placeholderTextColor={colors.textMuted}
-            style={sharedStyles.input}
+            placeholder="Email address"
             value={email}
           />
 
-          <Text style={styles.label}>Password</Text>
-          <TextInput
+          <DarkInput
             autoComplete="password"
+            icon="lock-closed-outline"
             onChangeText={setPassword}
             onSubmitEditing={handleLogin}
             placeholder="Password"
-            placeholderTextColor={colors.textMuted}
-            secureTextEntry
-            style={sharedStyles.input}
+            rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
+            onRightPress={() => setShowPassword((v) => !v)}
+            secureTextEntry={!showPassword}
             value={password}
           />
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <AppButton
+            title="Sign in"
+            onPress={handleLogin}
+            disabled={submitting}
+            loading={submitting}
+          />
 
-          {submitting ? (
-            <View style={styles.submitting}>
-              <ActivityIndicator color={colors.primary} />
-              <Text style={styles.submittingText}>Signing in...</Text>
-            </View>
-          ) : (
-            <AppButton title="Log In" onPress={handleLogin} />
-          )}
-        </Card>
-      </View>
+          <Pressable onPress={handleDemoLink} style={styles.demoLinkWrap}>
+            <Text style={styles.demoLink}>Manager demo →</Text>
+          </Pressable>
+          <Text style={styles.credentialHint}>
+            Demo: manager@routegenie.com / manager123 · Rep: raj@routegenie.com / rep123
+          </Text>
+        </View>
+      </Animated.View>
     </KeyboardAvoidingView>
   );
 }
@@ -99,18 +187,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.background,
   },
-  content: {
-    width: "100%",
-    maxWidth: 430,
-    alignSelf: "center",
-    justifyContent: "center",
+  topHalf: {
     flex: 1,
-    padding: spacing.lg,
+    justifyContent: "center",
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.xxl,
+  },
+  bottomHalf: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xxl,
   },
   brandMark: {
-    width: 58,
-    height: 58,
-    borderRadius: radius.lg,
+    width: 72,
+    height: 72,
+    borderRadius: radius.card,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primary,
@@ -118,51 +208,69 @@ const styles = StyleSheet.create({
     ...theme.shadow,
   },
   brandMarkText: {
-    color: colors.surface,
-    fontSize: type.subheading,
-    fontWeight: "900",
+    color: colors.text,
+    fontSize: 28,
+    fontFamily: fonts.bold,
   },
   title: {
+    color: colors.text,
+    fontSize: 28,
+    fontFamily: fonts.bold,
     marginBottom: spacing.xs,
   },
-  subtitle: {
-    marginBottom: spacing.xl,
+  tagline: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    fontFamily: fonts.body,
   },
-  card: {
-    overflow: "hidden",
+  loginCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.sheet,
+    padding: 28,
+    borderWidth: 1,
+    borderColor: colors.border,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: -4 },
+    elevation: 6,
   },
-  accent: {
-    height: 4,
-    backgroundColor: colors.primary,
-    borderRadius: radius.sm,
+  cardHeading: {
+    color: colors.text,
+    fontSize: 20,
+    fontFamily: fonts.bold,
     marginBottom: spacing.lg,
   },
-  label: {
-    color: colors.text,
-    fontWeight: "800",
-    marginBottom: spacing.sm,
-  },
-  error: {
-    color: colors.danger,
+  errorPill: {
     backgroundColor: colors.redSoft,
     borderColor: colors.redBorder,
     borderWidth: 1,
-    borderRadius: radius.sm,
-    padding: spacing.md,
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     marginBottom: spacing.md,
-    fontWeight: "700",
   },
-  submitting: {
-    minHeight: 44,
-    borderRadius: radius.sm,
+  errorText: {
+    color: colors.danger,
+    fontFamily: fonts.medium,
+    fontSize: 13,
+    textAlign: "center",
+  },
+  demoLinkWrap: {
+    marginTop: spacing.lg,
     alignItems: "center",
-    justifyContent: "center",
-    flexDirection: "row",
-    gap: spacing.sm,
-    backgroundColor: colors.primarySoft,
   },
-  submittingText: {
-    color: colors.primaryDark,
-    fontWeight: "800",
+  demoLink: {
+    color: colors.primary,
+    fontFamily: fonts.medium,
+    fontSize: 13,
+  },
+  credentialHint: {
+    color: colors.textMuted,
+    fontFamily: fonts.body,
+    fontSize: 11,
+    textAlign: "center",
+    marginTop: spacing.sm,
+    lineHeight: 16,
   },
 });

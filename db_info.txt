@@ -1,0 +1,12 @@
+DB Path: routegenie.db
+Stores:
+  ID 1 - Maruti Kirana & General Store: (18.56418, 73.78575)
+  ID 2 - Balaji Kirana & General Store: (18.55325, 73.7917)
+  ID 3 - Shree Kirana & General Store: (18.56709, 73.8053)
+  ID 4 - Pooja Kirana & General Store: (18.57177, 73.78761)
+  ID 5 - Krishna Kirana & General Store: (18.55766, 73.78589)
+  ID 6 - Ganesh Kirana & General Store: (18.55156, 73.80016)
+  ID 7 - Laxmi Kirana & General Store: (18.5458, 73.79097)
+  ID 8 - Venkatesh Kirana & General Store: (18.5645, 73.80135)
+  ID 9 - Wellness Pharmacy & Wellness: (18.55161, 73.80268)
+  ID 10 - Jeevan Pharmacy & Wellness: (18.56928, 73.78519)

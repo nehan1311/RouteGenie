@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Float, ForeignKey, Integer, String
+from sqlalchemy import Boolean, Column, Float, ForeignKey, Integer, String
 
 from database import Base
 
@@ -16,6 +16,7 @@ class Store(Base):
     base_priority = Column(Integer)
     stock_depletion_rate = Column(Float)
     closed_days = Column(String)
+    is_active = Column(Boolean, default=True)
 
 
 class Rep(Base):
@@ -28,6 +29,7 @@ class Rep(Base):
     best_time_window_end = Column(Integer)
     area_speed_factor = Column(Float)
     dna_profile = Column(String)
+    is_active = Column(Boolean, default=True)
 
 
 class User(Base):

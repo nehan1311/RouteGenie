@@ -363,7 +363,8 @@ def build_database(csv_path="source_dataset.csv", db_path="routegenie.db"):
             last_visited_date TEXT,
             base_priority INTEGER,
             stock_depletion_rate REAL,
-            closed_days TEXT
+            closed_days TEXT,
+            is_active INTEGER DEFAULT 1
         );
         """)
         
@@ -375,7 +376,8 @@ def build_database(csv_path="source_dataset.csv", db_path="routegenie.db"):
             best_time_window_start INTEGER,
             best_time_window_end INTEGER,
             area_speed_factor REAL,
-            dna_profile TEXT
+            dna_profile TEXT,
+            is_active INTEGER DEFAULT 1
         );
         """)
         

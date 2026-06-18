@@ -1,76 +1,164 @@
-import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Alert,
+  Animated,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import Svg, { Circle } from "react-native-svg";
+import { Ionicons } from "@expo/vector-icons";
 import MapView, { Marker } from "../components/Map";
 import { api } from "../api/client";
-import {
-  AppButton,
-  EmptyState,
-  LoadingState,
-  StatusBadge,
-  sharedStyles,
-  toneForStatus,
-} from "../components/UI";
+import { useAuth } from "../auth/AuthContext";
+import { useDemo } from "../context/DemoContext";
+import { useToast } from "../context/ToastContext";
+import { DemoBadge, HelpFab } from "../components/DemoHelp";
+import { MetricPill } from "../components/MetricPill";
+import { AvatarCircle, EmptyState } from "../components/UI";
+import { SkeletonScreen } from "../components/Skeleton";
 import { theme } from "../theme/colors";
+import { fonts } from "../theme/fonts";
 
-const { spacing, type, radius } = theme;
-
-function statusColor(status) {
-  return toneForStatus(status).color;
-}
+const { colors, spacing, radius } = theme;
 
 function formatMoney(value) {
   const amount = Number(value || 0);
-  if (amount >= 100000) return `Rs. ${(amount / 100000).toFixed(1)}L`;
-  if (amount >= 1000) return `Rs. ${(amount / 1000).toFixed(1)}k`;
-  return `Rs. ${amount.toFixed(0)}`;
-}
-
-function formatDate(value) {
-  if (!value) return "Today";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleDateString(undefined, {
-    weekday: "long",
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
-}
-
-function formatActivityTime(value) {
-  if (!value || value === "No activity") return "No activity yet";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  if (amount >= 100000) return `Rs.${(amount / 100000).toFixed(1)}L`;
+  if (amount >= 1000) return `Rs.${(amount / 1000).toFixed(1)}k`;
+  return `Rs.${amount}`;
 }
 
 function initials(name) {
-  return (name || "RG")
-    .split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  return (name || "RG").split(" ").map((p) => p[0]).join("").slice(0, 2).toUpperCase();
 }
 
-function clampPercent(value) {
-  return Math.max(0, Math.min(100, Number(value || 0)));
+function buildMetrics(data) {
+  const reps = data?.reps || [];
+  const totalStores = reps.reduce((s, r) => s + Number(r.stores_total || 0), 0);
+  const completedStores = reps.reduce((s, r) => s + Number(r.stores_done || 0), 0);
+  const revenueToday = reps.reduce((s, r) => s + Number(r.revenue_today || 0), 0);
+  const averageCompletion = totalStores > 0
+    ? Math.round((completedStores / totalStores) * 100)
+    : Math.round(reps.reduce((s, r) => s + Number(r.completion_pct || 0), 0) / Math.max(1, reps.length));
+  const behindCount = reps.filter((r) => r.status === "behind").length;
+
+  return {
+    totalReps: data?.total_reps || reps.length,
+    averageCompletion,
+    revenueToday,
+    behindCount,
+    leaderboard: [...reps].sort((a, b) => b.completion_pct - a.completion_pct || (b.revenue_today || 0) - (a.revenue_today || 0)),
+    activities: [...reps].sort((a, b) => String(b.last_active || "").localeCompare(String(a.last_active || ""))),
+  };
+}
+
+function RevenueBars({ reps }) {
+  const max = Math.max(...reps.map((r) => Number(r.revenue_today || 0)), 1);
+  const progress = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    Animated.spring(progress, { toValue: 1, friction: 6, useNativeDriver: false }).start();
+  }, [progress, reps]);
+
+  return (
+    <View style={styles.barChart}>
+      {reps.map((rep) => {
+        const pct = Number(rep.revenue_today || 0) / max;
+        const targetHeight = 24 + pct * 100;
+        const height = progress.interpolate({ inputRange: [0, 1], outputRange: [0, targetHeight] });
+        const barColor = rep.status === "behind" ? colors.danger : colors.success;
+        return (
+          <View key={rep.rep_id} style={styles.barItem}>
+            <Animated.View style={[styles.bar, { height, backgroundColor: barColor }]} />
+            <Text style={styles.barLabel}>{rep.rep_name?.split(" ")[0]}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
+
+function GoalRing({ percent }) {
+  const size = 120;
+  const stroke = 10;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const offset = c - (percent / 100) * c;
+
+  return (
+    <View style={styles.ringWrap}>
+      <Svg width={size} height={size}>
+        <Circle cx={size / 2} cy={size / 2} r={r} stroke={colors.border} strokeWidth={stroke} fill="none" />
+        <Circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          stroke={colors.primary}
+          strokeWidth={stroke}
+          fill="none"
+          strokeDasharray={`${c} ${c}`}
+          strokeDashoffset={offset}
+          strokeLinecap="round"
+          rotation="-90"
+          origin={`${size / 2}, ${size / 2}`}
+        />
+      </Svg>
+      <View style={styles.ringCenter}>
+        <Text style={styles.ringValue}>{percent}%</Text>
+        <Text style={styles.ringCaption}>of daily target</Text>
+      </View>
+    </View>
+  );
+}
+
+function PulsingDot() {
+  const opacity = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(opacity, { toValue: 0.2, duration: 800, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [opacity]);
+  return <Animated.View style={[styles.liveDot, { opacity }]} />;
 }
 
 export default function WarRoomScreen() {
+  const { name, logout } = useAuth();
+  const { demoMode } = useDemo();
+  const { showToast } = useToast();
+  const { width } = useWindowDimensions();
+  const twoCol = width >= 760;
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  function promptLogout() {
+    if (Platform.OS === "web") {
+      if (window.confirm("Sign out? Leave the manager workspace?")) logout();
+    } else {
+      Alert.alert("Sign out?", "Leave the manager workspace?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Logout", style: "destructive", onPress: logout },
+      ]);
+    }
+  }
 
   async function refresh() {
-    setLoading(true);
+    if (!demoMode) setLoading(true);
     setError("");
-    const { data, error } = await api.getWarRoom();
-    if (error) {
-      setError(error);
-    } else {
-      setData(data);
-    }
+    const { data: payload, error: apiError } = await api.getWarRoom();
+    if (apiError) setError(apiError);
+    else setData(payload);
     setLoading(false);
   }
 
@@ -78,785 +166,237 @@ export default function WarRoomScreen() {
     refresh();
   }, []);
 
+  useEffect(() => {
+    if (!demoMode) return undefined;
+    const timer = setInterval(refresh, 5000);
+    return () => clearInterval(timer);
+  }, [demoMode]);
+
+  const metrics = useMemo(() => buildMetrics(data), [data]);
   const reps = data?.reps || [];
-  const metrics = useMemo(() => buildDashboardMetrics(data), [data]);
-  const mapRegion = {
-    latitude: reps.length > 0 ? reps[0].current_lat : 19.1360,
-    longitude: reps.length > 0 ? reps[0].current_lng : 72.8265,
-    latitudeDelta: 0.08,
-    longitudeDelta: 0.08,
-  };
+  const filtered = searchQuery
+    ? metrics.leaderboard.filter((r) => r.rep_name.toLowerCase().includes(searchQuery.toLowerCase()))
+    : metrics.leaderboard;
+
+  async function handleNudge(rep) {
+    const { data, error: apiError } = await api.nudgeRep(rep.rep_id);
+    if (apiError) {
+      showToast(apiError, "error");
+    } else {
+      showToast(data?.message || `Nudge sent to ${rep.rep_name}`, "success");
+    }
+  }
+
+  if (loading && !data) return <SkeletonScreen />;
 
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <View style={styles.container}>
       <View style={styles.topBar}>
-        <View style={styles.searchBox}>
-          <Text style={styles.searchIcon}>Q</Text>
-          <Text style={styles.searchText}>Search or type a command</Text>
+        <View style={styles.topLeft}>
+          <Text style={styles.title}>War Room</Text>
+          <DemoBadge />
         </View>
-        <View style={styles.managerBadge}>
-          <Text style={styles.managerAvatar}>RG</Text>
-          <View>
-            <Text style={styles.managerName}>Manager</Text>
-            <Text style={styles.managerRole}>RouteGenie Ops</Text>
-          </View>
+        <View style={styles.topActions}>
+          <Pressable onPress={() => setSearchOpen((v) => !v)} style={styles.iconBtn}>
+            <Ionicons name="search-outline" size={20} color={colors.textSecondary} />
+          </Pressable>
+          <Pressable onPress={refresh} style={styles.iconBtn}>
+            <Ionicons name="refresh-outline" size={20} color={colors.textSecondary} />
+          </Pressable>
+          <Pressable onPress={promptLogout} style={styles.iconBtn}>
+            <Ionicons name="log-out-outline" size={20} color={colors.danger || colors.textSecondary} />
+          </Pressable>
         </View>
       </View>
 
-      <View style={styles.heroRow}>
-        <View>
-          <Text style={styles.title}>Welcome back.</Text>
-          <Text style={styles.subtitle}>
-            Live route performance dashboard - {formatDate(data?.date)}
-          </Text>
-        </View>
-        <AppButton
-          title={loading ? "Refreshing..." : "Refresh"}
-          onPress={refresh}
-          disabled={loading}
-          variant="secondary"
-          style={styles.refreshButton}
+      {searchOpen ? (
+        <TextInput
+          style={styles.search}
+          placeholder="Search reps..."
+          placeholderTextColor={colors.textMuted}
+          value={searchQuery}
+          onChangeText={setSearchQuery}
         />
-      </View>
-
-      {loading ? <LoadingState text="Loading manager dashboard..." /> : null}
-      {error ? <EmptyState text={`Error: ${error}`} /> : null}
-
-      {!loading && !error && reps.length === 0 ? (
-        <EmptyState text="No rep routes active today. Generate a route first." />
       ) : null}
 
-      {!loading && !error ? (
-        <>
-          <View style={styles.summaryGrid}>
-            <MetricCard
-              label="Total Team Members"
-              value={metrics.totalReps}
-              helper="View all active reps"
-              accent="neutral"
-            />
-            <MetricCard
-              label="Team Route Completion"
-              value={`${metrics.averageCompletion}%`}
-              helper={`${metrics.onTrackCount} on track / ${metrics.behindCount} behind`}
-              accent="success"
-            />
-            <MetricCard
-              label="Revenue Today"
-              value={formatMoney(metrics.revenueToday)}
-              helper={`${metrics.completedStores}/${metrics.totalStores} stores completed`}
-              accent="purple"
-            />
+      <ScrollView contentContainerStyle={styles.content}>
+        {error ? <EmptyState text={error} actionLabel="Retry" onAction={refresh} /> : null}
+
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.metricRow}>
+          <MetricPill icon="people-outline" label="Team size" value={metrics.totalReps} />
+          <MetricPill icon="speedometer-outline" label="Route completion" value={`${metrics.averageCompletion}%`} tone="success" />
+          <MetricPill icon="cash-outline" label="Revenue today" value={formatMoney(metrics.revenueToday)} />
+          <MetricPill icon="alert-circle-outline" label="Reps behind" value={metrics.behindCount} tone={metrics.behindCount > 0 ? "danger" : "neutral"} />
+        </ScrollView>
+
+        <View style={[styles.grid, twoCol && styles.gridTwoCol]}>
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Team revenue</Text>
+            <RevenueBars reps={reps.length ? reps : [{ rep_id: 0, rep_name: "—", revenue_today: 0, status: "on_track" }]} />
           </View>
 
-          <View style={styles.dashboardGrid}>
-            <View style={styles.leftColumn}>
-              <CardShell style={styles.salesCard}>
-                <View style={styles.cardHeader}>
-                  <View>
-                    <Text style={styles.cardTitle}>Total Team Sales</Text>
-                    <Text style={styles.cardCaption}>Revenue captured from completed visits</Text>
-                  </View>
-                  <View style={styles.segmentedControl}>
-                    <Text style={styles.segmentActive}>Today</Text>
-                    <Text style={styles.segmentText}>Week</Text>
-                    <Text style={styles.segmentText}>Month</Text>
-                  </View>
+          <View style={styles.panel}>
+            <Text style={styles.panelTitle}>Leaderboard</Text>
+            {filtered.map((rep, index) => (
+              <View key={rep.rep_id} style={[styles.leaderRow, rep.status === "on_track" && styles.leaderOnTrack]}>
+                <Text style={styles.rank}>{index + 1}</Text>
+                <AvatarCircle name={rep.rep_name} size={32} />
+                <View style={styles.leaderMeta}>
+                  <Text style={styles.leaderName}>{rep.rep_name}</Text>
+                  <Text style={styles.leaderSub}>{rep.completion_pct}% complete</Text>
                 </View>
-                <View style={styles.salesHeader}>
-                  <Text style={styles.salesValue}>{formatMoney(metrics.revenueToday)}</Text>
-                  <Text style={styles.positiveBadge}>+{metrics.averageCompletion}%</Text>
-                </View>
-                <SalesBars reps={reps} />
-              </CardShell>
-
-              <CardShell>
-                <View style={styles.cardHeader}>
-                  <View>
-                    <Text style={styles.cardTitle}>Rep Leaderboard</Text>
-                    <Text style={styles.cardCaption}>Ranked by route progress and revenue</Text>
-                  </View>
-                  <View style={styles.countBadge}>
-                    <Text style={styles.countBadgeText}>{reps.length}</Text>
-                  </View>
-                </View>
-                {metrics.leaderboard.map((rep, index) => (
-                  <LeaderboardRow key={rep.rep_id} rep={rep} rank={index + 1} />
-                ))}
-              </CardShell>
-            </View>
-
-            <View style={styles.rightColumn}>
-              <GoalCard percent={metrics.averageCompletion} />
-              <CardShell>
-                <View style={styles.cardHeader}>
-                  <Text style={styles.cardTitle}>Recent Activities</Text>
-                  <Text style={styles.linkText}>View All</Text>
-                </View>
-                {metrics.activities.map((rep) => (
-                  <ActivityRow key={rep.rep_id} rep={rep} />
-                ))}
-              </CardShell>
-            </View>
-          </View>
-
-          <CardShell style={styles.mapCard}>
-            <View style={styles.cardHeader}>
-              <View>
-                <Text style={styles.cardTitle}>Live Map</Text>
-                <Text style={styles.cardCaption}>Current rep positions by latest activity</Text>
+                <Text style={styles.leaderRev}>{formatMoney(rep.revenue_today)}</Text>
               </View>
-              <StatusBadge status={metrics.behindCount > 0 ? "behind" : "on_track"} />
-            </View>
-            <MapView style={styles.map} initialRegion={mapRegion}>
-              {reps.map((rep) => (
-                <Marker
-                  key={rep.rep_id}
-                  coordinate={{ latitude: rep.current_lat, longitude: rep.current_lng }}
-                  pinColor={statusColor(rep.status)}
-                  title={rep.rep_name}
-                  description={`${rep.status} - ${rep.completion_pct}%`}
-                />
-              ))}
-            </MapView>
-          </CardShell>
-        </>
-      ) : null}
-    </ScrollView>
-  );
-}
-
-function buildDashboardMetrics(data) {
-  const reps = data?.reps || [];
-  const totalStores = reps.reduce((sum, rep) => sum + Number(rep.stores_total || 0), 0);
-  const completedStores = reps.reduce((sum, rep) => sum + Number(rep.stores_done || 0), 0);
-  const revenueToday = reps.reduce((sum, rep) => sum + Number(rep.revenue_today || 0), 0);
-  const averageCompletion = totalStores > 0
-    ? Math.round((completedStores / totalStores) * 100)
-    : Math.round(
-        reps.reduce((sum, rep) => sum + Number(rep.completion_pct || 0), 0) / Math.max(1, reps.length)
-      );
-  const onTrackCount = reps.filter((rep) => rep.status === "on_track").length;
-  const behindCount = reps.filter((rep) => rep.status === "behind").length;
-
-  return {
-    totalReps: data?.total_reps || reps.length,
-    totalStores,
-    completedStores,
-    revenueToday,
-    averageCompletion,
-    onTrackCount,
-    behindCount,
-    leaderboard: [...reps].sort((a, b) => {
-      if (b.completion_pct !== a.completion_pct) return b.completion_pct - a.completion_pct;
-      return (b.revenue_today || 0) - (a.revenue_today || 0);
-    }),
-    activities: [...reps]
-      .sort((a, b) => String(b.last_active || "").localeCompare(String(a.last_active || "")))
-      .slice(0, 5),
-  };
-}
-
-function CardShell({ children, style }) {
-  return <View style={[styles.card, style]}>{children}</View>;
-}
-
-function MetricCard({ label, value, helper, accent }) {
-  return (
-    <CardShell style={styles.metricCard}>
-      <View style={styles.metricTopLine}>
-        <Text style={styles.metricLabel}>{label}</Text>
-        <View style={[styles.iconBubble, styles[`icon_${accent}`]]}>
-          <Text style={styles.iconBubbleText}>{accent === "purple" ? "Rs" : "RG"}</Text>
+            ))}
+            <GoalRing percent={metrics.averageCompletion} />
+          </View>
         </View>
-      </View>
-      <Text style={styles.metricValue}>{value}</Text>
-      <View style={styles.metricFooter}>
-        <Text style={styles.metricHelper}>{helper}</Text>
-        <Text style={styles.arrow}>-&gt;</Text>
-      </View>
-    </CardShell>
-  );
-}
 
-function SalesBars({ reps }) {
-  const maxRevenue = Math.max(...reps.map((rep) => Number(rep.revenue_today || 0)), 1);
-  const source = reps.length > 0 ? reps : [{ rep_id: "empty", rep_name: "No data", revenue_today: 0 }];
-
-  return (
-    <View style={styles.barChart}>
-      <View style={styles.targetLine}>
-        <Text style={styles.targetLabel}>route target</Text>
-      </View>
-      <View style={styles.barRow}>
-        {source.map((rep, index) => {
-          const percent = maxRevenue > 0 ? Number(rep.revenue_today || 0) / maxRevenue : 0;
-          const height = 26 + Math.round(percent * 92);
+        <View style={styles.sectionHeader}>
+          <PulsingDot />
+          <Text style={styles.sectionTitle}>Live activity</Text>
+        </View>
+        {metrics.activities.map((rep) => {
+          const behind = rep.status === "behind";
+          const message = behind
+            ? `${rep.rep_name.split(" ")[0]} is 12 min behind`
+            : `${rep.rep_name.split(" ")[0]} completed stop ${rep.stores_done || 1}`;
           return (
-            <View key={rep.rep_id} style={styles.barItem}>
-              <View
-                style={[
-                  styles.bar,
-                  { height },
-                  index === source.length - 1 ? styles.barActive : null,
-                ]}
-              />
-              <Text numberOfLines={1} style={styles.barLabel}>
-                {rep.rep_name?.split(" ")[0] || "Rep"}
-              </Text>
+            <View key={rep.rep_id} style={[styles.activityRow, behind && styles.activityBehind]}>
+              <AvatarCircle name={rep.rep_name} size={28} />
+              <View style={styles.activityCopy}>
+                <Text style={styles.activityText}>{message}</Text>
+                <Text style={styles.activityTime}>{new Date(rep.last_active || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</Text>
+              </View>
+              {behind ? (
+                <Pressable onPress={() => handleNudge(rep)} style={styles.nudgeBtn}>
+                  <Text style={styles.nudgeText}>Nudge →</Text>
+                </Pressable>
+              ) : null}
             </View>
           );
         })}
-      </View>
-    </View>
-  );
-}
 
-function GoalCard({ percent }) {
-  const clamped = clampPercent(percent);
-  return (
-    <CardShell style={styles.goalCard}>
-      <Text style={styles.cardTitle}>Team Goal Achievement</Text>
-      <View style={styles.gaugeShell}>
-        <View style={styles.gaugeTrack}>
-          <View style={[styles.gaugeFill, { width: `${clamped}%` }]} />
+        <Text style={[styles.panelTitle, { marginTop: spacing.lg }]}>Live map</Text>
+        <View style={styles.mapWrap}>
+          <MapView
+            style={styles.map}
+            initialRegion={{
+              latitude: reps[0]?.current_lat || 19.1136,
+              longitude: reps[0]?.current_lng || 72.8697,
+              latitudeDelta: 0.08,
+              longitudeDelta: 0.08,
+            }}
+          >
+            {reps.map((rep) => (
+              <Marker
+                key={rep.rep_id}
+                coordinate={{ latitude: rep.current_lat, longitude: rep.current_lng }}
+                pinColor={rep.status === "behind" ? colors.danger : colors.success}
+                title={rep.rep_name}
+                description={`${rep.completion_pct}% · ${formatMoney(rep.revenue_today)}`}
+              />
+            ))}
+          </MapView>
         </View>
-        <View style={styles.goalPill}>
-          <Text style={styles.goalPillText}>+12%</Text>
-        </View>
-        <Text style={styles.goalValue}>{clamped}</Text>
-        <Text style={styles.goalUnit}>%</Text>
-      </View>
-      <Text style={styles.goalMeta}>Daily route goal ends in</Text>
-      <View style={styles.daysPill}>
-        <Text style={styles.daysPillText}>Today</Text>
-      </View>
-    </CardShell>
-  );
-}
+      </ScrollView>
 
-function LeaderboardRow({ rep, rank }) {
-  const progress = clampPercent(rep.completion_pct);
-  return (
-    <View style={styles.leaderRow}>
-      <Text style={styles.rank}>{rank}</Text>
-      <View style={styles.avatar}>
-        <Text style={styles.avatarText}>{initials(rep.rep_name)}</Text>
-      </View>
-      <View style={styles.leaderNameBlock}>
-        <Text style={styles.rowTitle}>{rep.rep_name}</Text>
-        <Text style={styles.rowMeta}>{formatMoney(rep.revenue_today)} today</Text>
-      </View>
-      <Text style={styles.closedText}>
-        {rep.stores_done}/{rep.stores_total}
-      </Text>
-      <View style={styles.progressWrap}>
-        <View style={[styles.progressFill, { width: `${progress}%` }]} />
-      </View>
+      <HelpFab
+        title="War Room"
+        description="Live manager dashboard — team metrics, revenue bars, rep leaderboard, activity feed, and map positions."
+      />
     </View>
-  );
-}
-
-function ActivityRow({ rep }) {
-  const tone = toneForStatus(rep.status);
-  return (
-    <Pressable style={styles.activityRow}>
-      <View style={[styles.activityIcon, { backgroundColor: tone.backgroundColor }]}>
-        <Text style={[styles.activityIconText, { color: tone.color }]}>{initials(rep.rep_name)}</Text>
-      </View>
-      <View style={styles.activityCopy}>
-        <Text style={styles.activityText}>
-          <Text style={styles.activityName}>{rep.rep_name}</Text> completed {rep.stores_done} of{" "}
-          {rep.stores_total} planned stores.
-        </Text>
-        <Text style={styles.rowMeta}>{formatActivityTime(rep.last_active)}</Text>
-      </View>
-    </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
-  screen: {
-    ...sharedStyles.screen,
-    backgroundColor: "#F7F7F5",
-    padding: 0,
-  },
-  content: {
-    padding: spacing.xl,
-    paddingBottom: spacing.xxl,
-  },
+  container: { flex: 1, backgroundColor: colors.background },
   topBar: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    gap: spacing.md,
-    marginBottom: spacing.xl,
-  },
-  searchBox: {
-    flex: 1,
-    maxWidth: 520,
-    minHeight: 48,
-    borderRadius: radius.sm,
-    backgroundColor: "#FFFFFF",
-    borderColor: "#ECEBE7",
-    borderWidth: 1,
-    flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
   },
-  searchIcon: {
-    color: "#74706A",
-    fontSize: 20,
-    fontWeight: "800",
-  },
-  searchText: {
-    color: "#74706A",
-    fontSize: type.caption,
-    fontWeight: "700",
-  },
-  managerBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-  },
-  managerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    overflow: "hidden",
-    backgroundColor: "#111111",
-    color: "#FFFFFF",
-    textAlign: "center",
-    lineHeight: 40,
-    fontWeight: "900",
-  },
-  managerName: {
-    color: "#111111",
-    fontSize: type.body,
-    fontWeight: "900",
-  },
-  managerRole: {
-    color: "#77736D",
-    fontSize: type.caption,
-    fontWeight: "700",
-  },
-  heroRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: spacing.lg,
-    marginBottom: spacing.lg,
-  },
-  title: {
-    color: "#111111",
-    fontSize: 30,
-    fontWeight: "900",
-  },
-  subtitle: {
-    color: "#5E5A55",
-    fontSize: type.body,
-    marginTop: spacing.xs,
-    fontWeight: "600",
-  },
-  refreshButton: {
-    minWidth: 120,
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E8E4DF",
-  },
-  summaryGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.md,
-    marginBottom: spacing.md,
-  },
-  dashboardGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.md,
-  },
-  leftColumn: {
-    flex: 2,
-    minWidth: 320,
-    gap: spacing.md,
-  },
-  rightColumn: {
-    flex: 1,
-    minWidth: 290,
-    gap: spacing.md,
-  },
-  card: {
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E9E7E2",
+  topLeft: { flexDirection: "row", alignItems: "center" },
+  title: { color: colors.text, fontFamily: fonts.bold, fontSize: 20 },
+  topActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  iconBtn: { padding: spacing.sm },
+  mgrPill: { backgroundColor: colors.primarySoft, borderRadius: 999, paddingHorizontal: 10, paddingVertical: 6 },
+  mgrText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 11 },
+  search: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.button,
     borderWidth: 1,
-    borderRadius: radius.lg,
+    borderColor: colors.border,
+    color: colors.text,
+    paddingHorizontal: spacing.md,
+    height: 44,
+    fontFamily: fonts.body,
+  },
+  content: { padding: spacing.lg, paddingBottom: 120 },
+  metricRow: { marginBottom: spacing.md },
+  grid: { gap: spacing.md },
+  gridTwoCol: { flexDirection: "row" },
+  panel: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.border,
     padding: spacing.lg,
     marginBottom: spacing.md,
-    shadowColor: "#1B1A18",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.05,
-    shadowRadius: 18,
-    elevation: 2,
+    ...theme.shadow,
   },
-  metricCard: {
-    flex: 1,
-    minWidth: 220,
-    marginBottom: 0,
-  },
-  metricTopLine: {
+  panelTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 15, marginBottom: spacing.md },
+  barChart: { flexDirection: "row", alignItems: "flex-end", gap: spacing.sm, minHeight: 130 },
+  barItem: { flex: 1, alignItems: "center" },
+  bar: { width: "70%", borderRadius: 6, minHeight: 8 },
+  barLabel: { color: colors.textMuted, fontFamily: fonts.medium, fontSize: 10, marginTop: 6 },
+  leaderRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: spacing.sm,
-  },
-  metricLabel: {
-    color: "#5F5B55",
-    fontSize: type.caption,
-    fontWeight: "800",
-  },
-  iconBubble: {
-    width: 34,
-    height: 34,
-    borderRadius: radius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  icon_neutral: {
-    backgroundColor: "#F4F3EF",
-  },
-  icon_success: {
-    backgroundColor: "#DDF3E9",
-  },
-  icon_purple: {
-    backgroundColor: "#E9E5FF",
-  },
-  iconBubbleText: {
-    color: "#111111",
-    fontWeight: "900",
-  },
-  metricValue: {
-    color: "#121212",
-    fontSize: 28,
-    fontWeight: "900",
-    marginBottom: spacing.lg,
-  },
-  metricFooter: {
-    borderTopColor: "#EFEEE9",
-    borderTopWidth: 1,
-    paddingTop: spacing.md,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  metricHelper: {
-    color: "#111111",
-    fontSize: type.caption,
-    fontWeight: "800",
-  },
-  arrow: {
-    color: "#111111",
-    fontSize: 20,
-    fontWeight: "900",
-  },
-  salesCard: {
-    minHeight: 300,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  cardTitle: {
-    color: "#111111",
-    fontSize: type.subheading,
-    fontWeight: "900",
-  },
-  cardCaption: {
-    color: "#77736D",
-    fontSize: type.caption,
-    fontWeight: "700",
-    marginTop: spacing.xs,
-  },
-  segmentedControl: {
-    flexDirection: "row",
-    backgroundColor: "#F7F6F3",
-    borderRadius: 999,
-    padding: spacing.xs,
-    gap: spacing.xs,
-  },
-  segmentActive: {
-    backgroundColor: "#111111",
-    color: "#FFFFFF",
-    borderRadius: 999,
-    overflow: "hidden",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-    fontSize: type.caption,
-    fontWeight: "900",
-  },
-  segmentText: {
-    color: "#111111",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: type.caption,
-    fontWeight: "800",
-  },
-  salesHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    marginBottom: spacing.md,
-  },
-  salesValue: {
-    color: "#111111",
-    fontSize: 32,
-    fontWeight: "900",
-  },
-  positiveBadge: {
-    color: "#21A575",
-    backgroundColor: "#DDF3E9",
-    borderRadius: 999,
-    overflow: "hidden",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    fontSize: type.caption,
-    fontWeight: "900",
-  },
-  barChart: {
-    minHeight: 178,
-    justifyContent: "flex-end",
-  },
-  targetLine: {
-    borderTopColor: "#D9D6D0",
-    borderTopWidth: 1,
-    borderStyle: "dashed",
-    marginBottom: -20,
-    zIndex: 1,
-  },
-  targetLabel: {
-    alignSelf: "flex-start",
-    backgroundColor: "#FFFFFF",
-    borderColor: "#E8E4DF",
-    borderWidth: 1,
-    borderRadius: radius.sm,
-    color: "#111111",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    fontSize: type.caption,
-    fontWeight: "800",
-    marginTop: -16,
-  },
-  barRow: {
-    minHeight: 150,
-    flexDirection: "row",
-    alignItems: "flex-end",
-    justifyContent: "space-between",
-    gap: spacing.md,
-  },
-  barItem: {
-    flex: 1,
-    minWidth: 34,
     alignItems: "center",
     gap: spacing.sm,
-  },
-  bar: {
-    width: "72%",
-    maxWidth: 48,
-    borderRadius: radius.sm,
-    backgroundColor: "#E6E2FA",
-  },
-  barActive: {
-    backgroundColor: "#635BDF",
-  },
-  barLabel: {
-    color: "#625E58",
-    fontSize: 10,
-    fontWeight: "800",
-    maxWidth: 68,
-  },
-  countBadge: {
-    backgroundColor: "#FFF0EA",
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  countBadgeText: {
-    color: "#F26B2C",
-    fontWeight: "900",
-  },
-  leaderRow: {
-    minHeight: 58,
-    borderBottomColor: "#F0EEE9",
+    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
+    borderBottomColor: colors.border,
   },
-  rank: {
-    width: 20,
-    color: "#111111",
-    fontSize: type.body,
-    fontWeight: "900",
-  },
-  avatar: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#FFE7D9",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarText: {
-    color: "#111111",
-    fontSize: type.caption,
-    fontWeight: "900",
-  },
-  leaderNameBlock: {
-    flex: 1.2,
-    minWidth: 90,
-  },
-  rowTitle: {
-    color: "#111111",
-    fontSize: type.body,
-    fontWeight: "900",
-  },
-  rowMeta: {
-    color: "#77736D",
-    fontSize: type.caption,
-    fontWeight: "700",
-    marginTop: 2,
-  },
-  closedText: {
-    width: 58,
-    color: "#111111",
-    fontSize: type.caption,
-    fontWeight: "900",
-    textAlign: "right",
-  },
-  progressWrap: {
-    flex: 1,
-    minWidth: 92,
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: "#ECEDEA",
-    overflow: "hidden",
-  },
-  progressFill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: "#98D8BC",
-  },
-  goalCard: {
-    alignItems: "center",
-  },
-  gaugeShell: {
-    width: "100%",
-    alignItems: "center",
-    paddingTop: spacing.xl,
-    paddingBottom: spacing.md,
-  },
-  gaugeTrack: {
-    width: "92%",
-    height: 22,
-    borderRadius: 999,
-    overflow: "hidden",
-    backgroundColor: "#F0EFEC",
-    marginBottom: spacing.lg,
-  },
-  gaugeFill: {
-    height: "100%",
-    borderRadius: 999,
-    backgroundColor: "#FF6A24",
-  },
-  goalPill: {
-    backgroundColor: "#DDF3E9",
-    borderRadius: 999,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    marginBottom: spacing.sm,
-  },
-  goalPillText: {
-    color: "#21A575",
-    fontSize: type.caption,
-    fontWeight: "900",
-  },
-  goalValue: {
-    color: "#111111",
-    fontSize: 44,
-    lineHeight: 48,
-    fontWeight: "900",
-  },
-  goalUnit: {
-    color: "#111111",
-    fontSize: type.subheading,
-    fontWeight: "900",
-  },
-  goalMeta: {
-    color: "#625E58",
-    fontSize: type.caption,
-    fontWeight: "800",
-  },
-  daysPill: {
-    marginTop: spacing.sm,
-    backgroundColor: "#F8EFEA",
-    borderRadius: 999,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.sm,
-  },
-  daysPillText: {
-    color: "#111111",
-    fontSize: type.caption,
-    fontWeight: "900",
-  },
-  linkText: {
-    color: "#111111",
-    backgroundColor: "#F7F6F3",
-    borderRadius: 999,
-    overflow: "hidden",
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    fontSize: type.caption,
-    fontWeight: "900",
-  },
+  leaderOnTrack: { borderLeftWidth: 3, borderLeftColor: colors.success, paddingLeft: spacing.sm },
+  rank: { color: colors.textMuted, fontFamily: fonts.medium, width: 18 },
+  leaderMeta: { flex: 1 },
+  leaderName: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
+  leaderSub: { color: colors.textSecondary, fontFamily: fonts.body, fontSize: 11 },
+  leaderRev: { color: colors.text, fontFamily: fonts.bold, fontSize: 12 },
+  ringWrap: { alignItems: "center", marginTop: spacing.lg },
+  ringCenter: { position: "absolute", top: 38, alignItems: "center" },
+  ringValue: { color: colors.text, fontFamily: fonts.bold, fontSize: 24 },
+  ringCaption: { color: colors.textMuted, fontFamily: fonts.medium, fontSize: 11 },
+  sectionHeader: { flexDirection: "row", alignItems: "center", gap: spacing.sm, marginBottom: spacing.sm },
+  liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.danger },
+  sectionTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 15 },
   activityRow: {
-    borderBottomColor: "#F0EEE9",
-    borderBottomWidth: 1,
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md,
-    paddingVertical: spacing.md,
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.button,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  activityIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  activityIconText: {
-    fontSize: type.caption,
-    fontWeight: "900",
-  },
-  activityCopy: {
-    flex: 1,
-  },
-  activityText: {
-    color: "#3C3934",
-    fontSize: type.caption,
-    fontWeight: "700",
-    lineHeight: 18,
-  },
-  activityName: {
-    color: "#111111",
-    fontWeight: "900",
-  },
-  mapCard: {
-    marginTop: spacing.md,
-  },
-  map: {
-    height: 280,
-    borderRadius: radius.md,
-  },
+  activityBehind: { backgroundColor: colors.redSoft, borderColor: colors.redBorder },
+  activityCopy: { flex: 1 },
+  activityText: { color: colors.text, fontFamily: fonts.medium, fontSize: 13 },
+  activityTime: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 11, marginTop: 2 },
+  nudgeBtn: { paddingHorizontal: spacing.sm, paddingVertical: 4 },
+  nudgeText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 12 },
+  mapWrap: { borderRadius: radius.card, overflow: "hidden" },
+  map: { height: 220, width: "100%" },
 });

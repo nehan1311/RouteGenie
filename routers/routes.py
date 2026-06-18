@@ -21,6 +21,8 @@ from schemas import (
     WarRoomResponse,
     WhatIfRequest,
     WhatIfResponse,
+    NudgeRequest,
+    NudgeResponse,
 )
 
 router = APIRouter()
@@ -802,3 +804,23 @@ def mark_store_done(
     db.commit()
 
     return {"message": "Store marked as done", "store_id": request.store_id}
+
+
+@router.post("/manager/nudge", response_model=NudgeResponse)
+def manager_nudge(
+    request: NudgeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("manager")),
+):
+    rep = db.query(Rep).filter(Rep.id == request.rep_id).first()
+    if rep is None:
+        raise HTTPException(status_code=404, detail="Rep not found")
+        
+    # Since there is no actual push-notification service integrated,
+    # we simulate the nudge and return a success response.
+    # We could also log this to a Notification table if one existed.
+    
+    return {
+        "status": "success",
+        "message": f"Nudge sent to {rep.name} successfully."
+    }

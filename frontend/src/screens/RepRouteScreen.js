@@ -1,555 +1,570 @@
-import { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, StyleSheet, Text, View, Linking } from "react-native";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Alert,
+  Animated,
+  Linking,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
+import * as Location from "expo-location";
+import * as Haptics from "expo-haptics";
+import { Ionicons } from "@expo/vector-icons";
 import MapView, { Marker, Polyline } from "../components/Map";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
+import { useDemo } from "../context/DemoContext";
+import { DemoBadge, HelpFab } from "../components/DemoHelp";
+import { MetricPill } from "../components/MetricPill";
 import {
   AppButton,
-  Card,
+  AvatarCircle,
   EmptyState,
-  LoadingState,
-  SectionTitle,
   StatusBadge,
-  sharedStyles,
   toneForStatus,
 } from "../components/UI";
+import { SkeletonScreen } from "../components/Skeleton";
 import { theme } from "../theme/colors";
+import { fonts } from "../theme/fonts";
 
-const { colors, spacing, type, radius } = theme;
+const { colors, spacing, radius } = theme;
+const DEFAULT_LAT = 19.1136;
+const DEFAULT_LNG = 72.8697;
 
-function urgencyColor(status) {
-  if (status === "red") return colors.red;
-  if (status === "yellow") return colors.yellow;
-  return colors.green;
+function urgencyBarColor(status) {
+  if (status === "red") return colors.danger;
+  if (status === "yellow") return colors.warning;
+  return colors.success;
 }
 
-function routeStops(routeData) {
-  return routeData?.stores || [];
-}
+function PulsingBeacon() {
+  const ring1 = useRef(new Animated.Value(0)).current;
+  const ring2 = useRef(new Animated.Value(0)).current;
 
-function selectUrgencyStoreIds(urgencyPayload) {
-  const urgencyStores = [...(urgencyPayload?.stores || [])].sort(
-    (a, b) => b.urgency_score - a.urgency_score
-  );
-  const priorityStores = urgencyStores.filter((store) =>
-    ["red", "yellow"].includes(store.urgency_status)
-  );
-  const candidates = priorityStores.length > 0 ? priorityStores : urgencyStores;
-  return candidates.slice(0, 10).map((store) => store.store_id);
-}
+  useEffect(() => {
+    function loop(anim, delay) {
+      return Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: 1, duration: 2000, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
+        ])
+      );
+    }
+    const a1 = loop(ring1, 0);
+    const a2 = loop(ring2, 1000);
+    a1.start();
+    a2.start();
+    return () => {
+      a1.stop();
+      a2.stop();
+    };
+  }, [ring1, ring2]);
 
-function StopCard({ stop, index, busyStoreId, onDone, onCancel }) {
-  const urgencyTone = toneForStatus(stop.urgency_status);
-  const isDone = stop.status === "done";
-  const isCancelled = stop.status === "cancelled";
-  const revenue = Number.isFinite(Number(stop.estimated_revenue))
-    ? `Rs. ${Math.round(Number(stop.estimated_revenue)).toLocaleString()}`
-    : "Pending estimate";
+  const makeStyle = (anim) => ({
+    opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 0] }),
+    transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [1, 2] }) }],
+  });
 
   return (
-    <View
-      style={[
-        styles.stopItem,
-        {
-          backgroundColor: urgencyTone.backgroundColor,
-          borderColor: urgencyTone.borderColor,
-          borderLeftColor: urgencyTone.color,
-        },
-        isDone || isCancelled ? styles.stopItemMuted : null,
-      ]}
-    >
-      <View style={styles.stopHeader}>
-        <View style={styles.stopTitleWrap}>
-          <Text style={[styles.stopTitle, isCancelled ? styles.cancelledText : null]}>
-            {index + 1}. {stop.store_name || stop.name}
-          </Text>
-          <Text style={styles.stopType}>{stop.store_type || "General trade"}</Text>
-        </View>
-        <StatusBadge status={stop.urgency_status} />
-      </View>
-
-      <View style={styles.stopFacts}>
-        <View style={styles.factBox}>
-          <Text style={styles.factLabel}>Arrival</Text>
-          <Text style={styles.factValue}>{stop.planned_arrival || "TBD"}</Text>
-        </View>
-        <View style={styles.factBox}>
-          <Text style={styles.factLabel}>Est. revenue</Text>
-          <Text style={styles.factValue}>{revenue}</Text>
-        </View>
-        <View style={styles.factBox}>
-          <Text style={styles.factLabel}>Status</Text>
-          <View style={styles.inlineStatus}>
-            <Text style={styles.statusIcon}>{isDone ? "[OK]" : isCancelled ? "[X]" : "[ ]"}</Text>
-            <StatusBadge status={stop.status} />
-          </View>
-        </View>
-      </View>
-
-      <View style={styles.actionRow}>
-        <AppButton
-          title={busyStoreId === stop.store_id ? "Saving..." : "Mark done"}
-          onPress={() => onDone(stop)}
-          disabled={busyStoreId === stop.store_id || isDone}
-          variant="success"
-          style={styles.stopButton}
-        />
-        <AppButton
-          title="Cancel stop"
-          onPress={() => onCancel(stop)}
-          disabled={busyStoreId === stop.store_id || isDone}
-          variant="danger"
-          style={styles.stopButton}
-        />
-      </View>
+    <View style={styles.beaconWrap} pointerEvents="none">
+      <Animated.View style={[styles.beaconRing, makeStyle(ring1)]} />
+      <Animated.View style={[styles.beaconRing, makeStyle(ring2)]} />
+      <View style={styles.beaconCore} />
     </View>
   );
 }
 
-export default function RepRouteScreen() {
-  const { repId, name } = useAuth();
-  const [route, setRoute] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [loadingText, setLoadingText] = useState("Preparing rep view...");
-  const [busyStoreId, setBusyStoreId] = useState(null);
-  const [message, setMessage] = useState("");
-  const [showDropped, setShowDropped] = useState(false);
+function SwipeStopCard({
+  stop,
+  index,
+  isCurrent,
+  collapsed,
+  onDone,
+  onCancel,
+  onDirections,
+}) {
+  const heightAnim = useRef(new Animated.Value(1)).current;
+  const revenue = Number.isFinite(Number(stop.estimated_revenue))
+    ? `Rs. ${Math.round(Number(stop.estimated_revenue)).toLocaleString()}`
+    : "Pending";
 
-  const stops = routeStops(route);
-  const coordinates = useMemo(
-    () => stops.map((stop) => ({ latitude: stop.lat, longitude: stop.lng })),
-    [stops]
+  useEffect(() => {
+    if (collapsed) {
+      Animated.timing(heightAnim, { toValue: 0, duration: 300, useNativeDriver: false }).start();
+    }
+  }, [collapsed, heightAnim]);
+
+  const renderRight = () => (
+    <View style={styles.swipeRight}>
+      <Text style={styles.swipeRightText}>Complete ✓</Text>
+    </View>
   );
 
-  const googleMapsUrl = useMemo(() => {
-    if (!stops || stops.length === 0) return null;
-    const origin = "18.5592,73.7931";
-    const activeStops = stops.filter(s => s.status !== "cancelled");
-    if (activeStops.length === 0) return null;
-    const destination = `${activeStops[activeStops.length - 1].lat},${activeStops[activeStops.length - 1].lng}`;
-    const waypoints = activeStops
-      .slice(0, -1)
-      .map((stop) => `${stop.lat},${stop.lng}`)
-      .join("|");
-    
-    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${encodeURIComponent(waypoints)}`;
-  }, [stops]);
+  const renderLeft = () => (
+    <View style={styles.swipeLeft}>
+      <Text style={styles.swipeLeftText}>Skip ✗</Text>
+    </View>
+  );
 
-  const openGoogleMaps = () => {
-    if (googleMapsUrl) {
-      Linking.openURL(googleMapsUrl).catch((err) =>
-        Alert.alert("Error", "Could not open Google Maps: " + err.message)
-      );
+  if (stop.status === "done" || stop.status === "cancelled") {
+    return (
+      <View style={[styles.stopCard, styles.stopMuted]}>
+        <View style={[styles.urgencyBar, { backgroundColor: urgencyBarColor(stop.urgency_status) }]} />
+        <View style={styles.stopContent}>
+          <Text style={styles.stopName}>{stop.store_name || stop.name}</Text>
+          <StatusBadge status={stop.status} />
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <Animated.View style={{ maxHeight: heightAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 200] }), opacity: heightAnim, marginBottom: collapsed ? 0 : spacing.sm, overflow: "hidden" }}>
+      <Swipeable
+        renderRightActions={renderRight}
+        renderLeftActions={renderLeft}
+        onSwipeableOpen={(direction) => {
+          if (direction === "right") {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            onDone(stop);
+          } else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            onCancel(stop);
+          }
+        }}
+      >
+        <Pressable
+          onLongPress={() =>
+            Alert.alert(stop.store_name || stop.name, "Choose an action", [
+              { text: "Mark done", onPress: () => onDone(stop) },
+              { text: "Cancel stop", style: "destructive", onPress: () => onCancel(stop) },
+              { text: "Get directions", onPress: () => onDirections(stop) },
+              { text: "Dismiss", style: "cancel" },
+            ])
+          }
+          style={[styles.stopCard, isCurrent && styles.stopCurrent]}
+        >
+          <View style={[styles.urgencyBar, { backgroundColor: isCurrent ? colors.primary : urgencyBarColor(stop.urgency_status) }]} />
+          <View style={styles.stopContent}>
+            <Text style={styles.stopName}>{stop.store_name || stop.name}</Text>
+            <Text style={styles.stopMeta}>
+              {stop.planned_arrival || "TBD"} · {revenue}
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginRight: 8 }}>
+            <StatusBadge status={stop.urgency_status} />
+            <Pressable onPress={() => onDone(stop)} style={{ padding: 6, backgroundColor: "rgba(16, 185, 129, 0.15)", borderRadius: 6 }}>
+              <Ionicons name="checkmark" size={18} color="#10B981" />
+            </Pressable>
+            <Pressable onPress={() => onCancel(stop)} style={{ padding: 6, backgroundColor: "rgba(239, 68, 68, 0.15)", borderRadius: 6 }}>
+              <Ionicons name="close" size={18} color="#EF4444" />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Swipeable>
+    </Animated.View>
+  );
+}
+
+export default function RepRouteScreen() {
+  const { repId, name, logout } = useAuth();
+  const { demoMode } = useDemo();
+  const [route, setRoute] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [generating, setGenerating] = useState(false);
+  const [busyStoreId, setBusyStoreId] = useState(null);
+  const [collapsedIds, setCollapsedIds] = useState(new Set());
+  const [message, setMessage] = useState("");
+  const [location, setLocation] = useState(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const routeFade = useRef(new Animated.Value(0)).current;
+  const btnPulse = useRef(new Animated.Value(1)).current;
+
+  async function fetchDeviceLocation(forcePrompt = false) {
+    setLocationLoading(true);
+    try {
+      let { status } = await Location.getForegroundPermissionsAsync();
+      if (status !== "granted" || forcePrompt) {
+        status = (await Location.requestForegroundPermissionsAsync()).status;
+      }
+      if (status !== "granted") {
+        setLocation(null);
+        return;
+      }
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      if (loc?.coords) {
+        setLocation({ latitude: loc.coords.latitude, longitude: loc.coords.longitude });
+      }
+    } catch {
+      setLocation(null);
+    } finally {
+      setLocationLoading(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    fetchDeviceLocation(false);
+  }, []);
+
+  const stops = route?.stores || [];
+  const activeStops = stops.filter((s) => s.status !== "done" && s.status !== "cancelled");
+  const currentStopIndex = stops.findIndex((s) => s.status === "pending");
+  const remainingCount = activeStops.length;
+  const totalRevenue = stops.reduce((sum, s) => sum + Number(s.estimated_revenue || 0), 0);
+  const hasCancellation = stops.some((s) => s.status === "cancelled");
+
+  const coordinates = useMemo(() => {
+    if (!stops.length) return [];
+    const start = location || { latitude: DEFAULT_LAT, longitude: DEFAULT_LNG };
+    return [start, ...stops.map((s) => ({ latitude: s.lat, longitude: s.lng }))];
+  }, [stops, location]);
+
+  const googleMapsUrl = useMemo(() => {
+    if (!activeStops.length) return null;
+    const origin = location ? `${location.latitude},${location.longitude}` : `${DEFAULT_LAT},${DEFAULT_LNG}`;
+    const destination = `${activeStops[activeStops.length - 1].lat},${activeStops[activeStops.length - 1].lng}`;
+    const waypoints = activeStops.slice(0, -1).map((s) => `${s.lat},${s.lng}`).join("|");
+    return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${encodeURIComponent(waypoints)}`;
+  }, [activeStops, location]);
 
   async function loadRoute() {
     if (!repId) {
-      setMessage("No rep profile is linked to this user.");
+      setMessage("No rep profile linked to this account.");
       setLoading(false);
       return;
     }
     setLoading(true);
-    setLoadingText("Fetching today's route...");
     setMessage("");
     const { data, error } = await api.getTodayRoute(repId);
-
     if (error) {
       if (error.includes("No active route")) {
         setRoute(null);
-        setMessage("No active route yet. Tap Generate Route.");
       } else {
         setMessage(error);
       }
-      setLoading(false);
-      return;
+    } else {
+      setRoute(data);
+      Animated.timing(routeFade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
     }
-
-    setRoute(data);
     setLoading(false);
   }
 
   async function generateRoute() {
     if (!repId) return;
-    setLoading(true);
-    setLoadingText("Selecting your optimal stores for today...");
-    setMessage("");
+    setGenerating(true);
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(btnPulse, { toValue: 0.6, duration: 400, useNativeDriver: true }),
+        Animated.timing(btnPulse, { toValue: 1, duration: 400, useNativeDriver: true }),
+      ])
+    );
+    pulse.start();
 
     const storesResult = await api.getStores();
     if (storesResult.error) {
       setMessage(storesResult.error);
-      Alert.alert("Could not load candidate stores", storesResult.error);
-      setLoading(false);
+      setGenerating(false);
+      pulse.stop();
       return;
     }
 
-    const candidateStoreIds = (storesResult.data || []).map((store) => store.id);
-    if (candidateStoreIds.length === 0) {
-      setMessage("No stores available for route generation.");
-      setLoading(false);
-      return;
-    }
+    const candidateStoreIds = (storesResult.data || []).map((s) => s.id);
+    const startLat = location?.latitude || DEFAULT_LAT;
+    const startLng = location?.longitude || DEFAULT_LNG;
+    const routeResult = await api.generateOptimalRoute(repId, candidateStoreIds, startLat, startLng);
 
-    const routeResult = await api.generateOptimalRoute(
-      repId,
-      candidateStoreIds,
-      18.5592,
-      73.7931
-    );
+    pulse.stop();
+    btnPulse.setValue(1);
+    setGenerating(false);
 
     if (routeResult.error) {
       setMessage(routeResult.error);
-      Alert.alert("Could not generate route", routeResult.error);
-      setLoading(false);
       return;
     }
-
     await loadRoute();
-  }
-
-  function updateStopStatus(storeId, status) {
-    setRoute((currentRoute) => {
-      if (!currentRoute) return currentRoute;
-      if (Array.isArray(currentRoute.stores)) {
-        return {
-          ...currentRoute,
-          stores: currentRoute.stores.map((stop) =>
-            stop.store_id === storeId ? { ...stop, status } : stop
-          ),
-        };
-      }
-      return currentRoute;
-    });
   }
 
   async function markDone(stop) {
     setBusyStoreId(stop.store_id);
-    setMessage("");
     const { error } = await api.markStoreDone(repId, {
       store_id: stop.store_id,
       revenue: Math.round((stop.estimated_revenue || 0) * 100) / 100,
       notes: "Visited from app",
     });
-
     if (error) {
-      setMessage(error);
-      Alert.alert("Mark done failed", error);
+      Alert.alert("Could not complete stop", error);
     } else {
-      updateStopStatus(stop.store_id, "done");
+      setCollapsedIds((prev) => new Set(prev).add(stop.store_id));
+      setRoute((r) => ({
+        ...r,
+        stores: r.stores.map((s) => (s.store_id === stop.store_id ? { ...s, status: "done" } : s)),
+      }));
     }
     setBusyStoreId(null);
   }
 
   async function cancelAndReplan(stop) {
     setBusyStoreId(stop.store_id);
-    setMessage("");
     const { error } = await api.replanRoute({
       rep_id: repId,
       cancelled_store_id: stop.store_id,
-      reason: "Marked unavailable from app",
+      reason: "Skipped from app",
       current_time: new Date().toTimeString().slice(0, 5),
       current_lat: stop.lat,
       current_lng: stop.lng,
     });
-
     if (error) {
-      setMessage(error);
       Alert.alert("Replan failed", error);
     } else {
+      setCollapsedIds((prev) => new Set(prev).add(stop.store_id));
       await loadRoute();
     }
     setBusyStoreId(null);
+  }
+
+  function openDirections(stop) {
+    Linking.openURL(`https://www.google.com/maps/dir/?api=1&destination=${stop.lat},${stop.lng}`);
+  }
+
+  function openSettings() {
+    if (Platform.OS === "ios") Linking.openURL("app-settings:");
+    else Linking.openSettings();
+  }
+
+  function promptLogout() {
+    if (Platform.OS === "web") {
+      if (window.confirm("Sign out? Leave your route workspace?")) logout();
+    } else {
+      Alert.alert("Sign out?", "Leave your route workspace?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Logout", style: "destructive", onPress: logout },
+      ]);
+    }
   }
 
   useEffect(() => {
     loadRoute();
   }, [repId]);
 
-  if (loading && !route) return <LoadingState text={loadingText} />;
+  if (loading && !route && !demoMode) {
+    return <SkeletonScreen />;
+  }
 
-  const initialRegion = coordinates[0]
-    ? {
-        latitude: coordinates[0].latitude,
-        longitude: coordinates[0].longitude,
-        latitudeDelta: 0.05,
-        longitudeDelta: 0.05,
-      }
-    : {
-        latitude: 18.5592,
-        longitude: 73.7931,
-        latitudeDelta: 0.1,
-        longitudeDelta: 0.1,
-      };
+  const initialRegion = {
+    latitude: location?.latitude || DEFAULT_LAT,
+    longitude: location?.longitude || DEFAULT_LNG,
+    latitudeDelta: 0.06,
+    longitudeDelta: 0.06,
+  };
 
   return (
-    <ScrollView style={sharedStyles.screen}>
-      <Text style={sharedStyles.title}>Rep Route</Text>
-      <Text style={sharedStyles.subtitle}>
-        {name ? `${name}'s live route and instant replanning.` : "Live route and instant replanning."}
-      </Text>
-
-      <Card style={styles.routeActionCard}>
-        <View style={styles.routeActionCopy}>
-          <SectionTitle>Today's Route</SectionTitle>
-          <Text style={styles.helperText}>
-            Stops are prioritized by urgency so the highest-risk stores are impossible to miss.
-          </Text>
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Today&apos;s Route</Text>
+          <DemoBadge />
         </View>
-        <AppButton
-          title={loading ? "Selecting..." : "Generate my route"}
-          onPress={generateRoute}
-          disabled={loading}
-          style={styles.generateButton}
-        />
-      </Card>
+        <Pressable onPress={promptLogout} style={{ padding: 8 }}>
+          <Ionicons name="log-out-outline" size={24} color={colors.danger} />
+        </Pressable>
+      </View>
 
-      {route && (
-        <Card style={styles.optimalBadgeCard}>
-          <Text style={styles.optimalBadgeTitle}>
-            {route.recommended_visit_count ?? (route.stores?.length || 0)} of {route.candidate_count ?? (route.stores?.length || 0)} stores selected for today
-          </Text>
-          <Text style={styles.optimalBadgeSubtitle}>
-            Optimized to maximize conversion and prioritize urgency within 8 hours.
-          </Text>
-        </Card>
-      )}
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        {!location && !locationLoading ? (
+          <Pressable style={styles.locationPill} onPress={openSettings}>
+            <Text style={styles.locationPillText}>Using Mumbai as fallback · Enable GPS →</Text>
+          </Pressable>
+        ) : null}
 
-      {message ? (
-        <EmptyState
-          text={message}
-          actionLabel={message.includes("No active route") ? "Generate my route" : undefined}
-          onAction={message.includes("No active route") ? generateRoute : undefined}
-        />
+        {!route ? (
+          <Animated.View style={{ opacity: btnPulse }}>
+            <AppButton
+              title="Build today's route"
+              icon="location-outline"
+              onPress={generateRoute}
+              disabled={generating || locationLoading}
+              loading={generating}
+            />
+          </Animated.View>
+        ) : null}
+
+        {route ? (
+          <Animated.View style={{ opacity: routeFade }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.metricRow}>
+              <MetricPill icon="flag-outline" label="Total stops" value={stops.length} />
+              <MetricPill icon="cash-outline" label="Est. revenue" value={`Rs.${Math.round(totalRevenue / 1000)}k`} />
+              <MetricPill icon="time-outline" label="Drive time" value={`${route.total_drive_minutes || 95}m`} />
+            </ScrollView>
+
+            <View style={styles.mapWrap}>
+              <MapView style={styles.map} initialRegion={initialRegion}>
+                <Marker coordinate={location || { latitude: DEFAULT_LAT, longitude: DEFAULT_LNG }} pinColor={colors.primary} title="Start" />
+                {stops.map((stop, idx) => (
+                  <Marker
+                    key={stop.store_id}
+                    coordinate={{ latitude: stop.lat, longitude: stop.lng }}
+                    pinColor={urgencyBarColor(stop.urgency_status)}
+                    title={stop.store_name}
+                  />
+                ))}
+                {coordinates.length > 1 ? (
+                  <Polyline coordinates={coordinates} strokeColor={colors.primary} strokeWidth={4} />
+                ) : null}
+              </MapView>
+              {currentStopIndex >= 0 ? (
+                <View style={styles.beaconOverlay}>
+                  <PulsingBeacon />
+                </View>
+              ) : null}
+              {googleMapsUrl ? (
+                <Pressable style={styles.mapsChip} onPress={() => Linking.openURL(googleMapsUrl)}>
+                  <Text style={styles.mapsChipText}>Open in Google Maps</Text>
+                  <Ionicons name="arrow-forward" size={14} color={colors.text} />
+                </Pressable>
+              ) : null}
+            </View>
+
+            <Text style={styles.sectionLabel}>STOPS · {remainingCount} REMAINING</Text>
+            {stops.map((stop, index) => (
+              <SwipeStopCard
+                key={stop.store_id}
+                stop={stop}
+                index={index}
+                isCurrent={index === currentStopIndex}
+                collapsed={collapsedIds.has(stop.store_id)}
+                onDone={markDone}
+                onCancel={cancelAndReplan}
+                onDirections={openDirections}
+              />
+            ))}
+          </Animated.View>
+        ) : null}
+
+        {message ? <EmptyState text={message} actionLabel="Build today's route" onAction={generateRoute} /> : null}
+      </ScrollView>
+
+      {hasCancellation ? (
+        <Pressable style={styles.fab} onPress={loadRoute}>
+          <Ionicons name="refresh" size={24} color={colors.text} />
+        </Pressable>
       ) : null}
 
-      <Card style={styles.mapCard}>
-        <View style={styles.mapHeader}>
-          <SectionTitle>Sales Pulse Map</SectionTitle>
-          {stops.length > 0 && googleMapsUrl && (
-            <AppButton
-              title="🗺️ Track on Google Maps"
-              onPress={openGoogleMaps}
-              variant="secondary"
-              style={styles.trackButton}
-            />
-          )}
-        </View>
-        <MapView style={styles.map} initialRegion={initialRegion}>
-          {stops.map((stop) => (
-            <Marker
-              key={stop.store_id}
-              coordinate={{ latitude: stop.lat, longitude: stop.lng }}
-              pinColor={urgencyColor(stop.urgency_status)}
-              title={stop.store_name || stop.name}
-              description={`Urgency: ${stop.urgency_status}`}
-            />
-          ))}
-          {coordinates.length > 1 ? (
-            <Polyline coordinates={coordinates} strokeColor={colors.primary} strokeWidth={4} />
-          ) : null}
-        </MapView>
-      </Card>
-
-      <Card>
-        <SectionTitle>Stops</SectionTitle>
-        {loading ? <LoadingState text={loadingText || "Refreshing route..."} /> : null}
-        {stops.length === 0 ? (
-          <EmptyState text="No stops yet." />
-        ) : (
-          stops.map((stop, index) => (
-            <StopCard
-              key={stop.store_id}
-              stop={stop}
-              index={index}
-              busyStoreId={busyStoreId}
-              onDone={markDone}
-              onCancel={cancelAndReplan}
-            />
-          ))
-        )}
-      </Card>
-
-      {route && route.dropped_count > 0 && (
-        <Card style={styles.droppedCard}>
-          <AppButton
-            title={showDropped ? `Hide ${route.dropped_count} dropped stores` : `Show ${route.dropped_count} dropped stores`}
-            onPress={() => setShowDropped(!showDropped)}
-            variant="secondary"
-          />
-          {showDropped && (
-            <View style={styles.droppedList}>
-              {route.dropped_stores && route.dropped_stores.map((store) => (
-                <View key={store.store_id} style={styles.droppedItem}>
-                  <Text style={styles.droppedItemName}>{store.store_name || store.name}</Text>
-                  <Text style={styles.droppedItemReason}>{store.reason || "Lower priority today"}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-        </Card>
-      )}
-    </ScrollView>
+      <HelpFab
+        title="My Route"
+        description="Generate an optimised daily route, track stops on the map, swipe right to complete or left to skip, and replan after cancellations."
+      />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  routeActionCard: {
-    gap: spacing.md,
-  },
-  routeActionCopy: {
-    gap: spacing.xs,
-  },
-  helperText: {
-    color: colors.textSecondary,
-    fontSize: type.body,
-    lineHeight: 21,
-  },
-  generateButton: {
-    alignSelf: "stretch",
-  },
-  mapCard: {
-    opacity: 0.92,
-  },
-  mapHeader: {
+  container: { flex: 1, backgroundColor: colors.background },
+  header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: spacing.xs,
-  },
-  trackButton: {
-    minHeight: 36,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-  },
-  map: {
-    height: 400,
-    borderRadius: radius.md,
-  },
-  stopItem: {
-    borderWidth: 1,
-    borderLeftWidth: 7,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  stopItemMuted: {
-    opacity: 0.72,
-  },
-  stopHeader: {
-    flexDirection: "row",
     justifyContent: "space-between",
-    gap: spacing.md,
-    marginBottom: spacing.md,
-  },
-  stopTitleWrap: {
-    flex: 1,
-  },
-  stopTitle: {
-    color: colors.text,
-    fontWeight: "900",
-    fontSize: type.subheading,
-    marginBottom: spacing.xs,
-  },
-  stopType: {
-    color: colors.textSecondary,
-    fontSize: type.caption,
-    fontWeight: "700",
-    textTransform: "uppercase",
-  },
-  cancelledText: {
-    textDecorationLine: "line-through",
-    color: colors.textMuted,
-  },
-  stopFacts: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  factBox: {
-    flexGrow: 1,
-    minWidth: 130,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+    paddingBottom: spacing.sm,
     backgroundColor: colors.surface,
-    borderColor: colors.border,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.md,
-  },
-  factLabel: {
-    color: colors.textSecondary,
-    fontSize: type.caption,
-    fontWeight: "700",
-    marginBottom: spacing.xs,
-    textTransform: "uppercase",
-  },
-  factValue: {
-    color: colors.text,
-    fontSize: type.body,
-    fontWeight: "800",
-  },
-  inlineStatus: {
-    alignItems: "flex-start",
-    gap: spacing.xs,
-  },
-  statusIcon: {
-    color: colors.textSecondary,
-    fontSize: type.caption,
-    fontWeight: "900",
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-    flexWrap: "wrap",
-  },
-  stopButton: {
-    flex: 1,
-    minWidth: 130,
-  },
-  optimalBadgeCard: {
-    backgroundColor: colors.greenSoft,
-    borderColor: colors.greenBorder,
-    borderWidth: 1,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  optimalBadgeTitle: {
-    color: colors.green,
-    fontSize: type.subheading,
-    fontWeight: "900",
-    textAlign: "center",
-  },
-  optimalBadgeSubtitle: {
-    color: colors.textSecondary,
-    fontSize: type.caption,
-    textAlign: "center",
-    marginTop: spacing.xs,
-  },
-  droppedCard: {
-    gap: spacing.sm,
-    marginBottom: spacing.md,
-  },
-  droppedList: {
-    marginTop: spacing.sm,
-    gap: spacing.xs,
-  },
-  droppedItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
-  droppedItemName: {
-    color: colors.text,
-    fontSize: type.body,
-    fontWeight: "700",
+  headerLeft: { flexDirection: "row", alignItems: "center" },
+  headerTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 18 },
+  scroll: { flex: 1 },
+  scrollContent: { padding: spacing.lg, paddingBottom: 120 },
+  locationPill: {
+    backgroundColor: colors.yellowSoft,
+    borderColor: colors.yellowBorder,
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
   },
-  droppedItemReason: {
-    color: colors.textSecondary,
-    fontSize: type.caption,
-    fontWeight: "600",
-    textTransform: "uppercase",
+  locationPillText: { color: colors.warning, fontFamily: fonts.medium, fontSize: 12 },
+  metricRow: { marginBottom: spacing.md },
+  mapWrap: { borderRadius: radius.card, overflow: "hidden", marginBottom: spacing.lg, position: "relative" },
+  map: { height: 240, width: "100%" },
+  beaconOverlay: { position: "absolute", top: "42%", left: "48%" },
+  beaconWrap: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  beaconRing: {
+    position: "absolute",
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.primary,
+  },
+  beaconCore: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
+  mapsChip: {
+    position: "absolute",
+    bottom: spacing.sm,
+    right: spacing.sm,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: 999,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  mapsChipText: { color: colors.text, fontFamily: fonts.medium, fontSize: 12 },
+  sectionLabel: { color: colors.textMuted, fontFamily: fonts.medium, fontSize: 13, letterSpacing: 0.6, marginBottom: spacing.sm },
+  stopCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.sm,
+  },
+  stopCurrent: { backgroundColor: colors.surfaceElevated, borderColor: colors.primary },
+  stopMuted: { opacity: 0.55 },
+  urgencyBar: { width: 4, alignSelf: "stretch", borderRadius: 2, marginRight: spacing.md },
+  stopContent: { flex: 1 },
+  stopName: { color: colors.text, fontFamily: fonts.bold, fontSize: 15 },
+  stopMeta: { color: colors.textSecondary, fontFamily: fonts.body, fontSize: 12, marginTop: 4 },
+  swipeRight: {
+    backgroundColor: colors.success,
+    justifyContent: "center",
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.card,
+    marginBottom: spacing.sm,
+  },
+  swipeLeft: {
+    backgroundColor: colors.danger,
+    justifyContent: "center",
+    alignItems: "flex-end",
+    paddingHorizontal: spacing.lg,
+    borderRadius: radius.card,
+    marginBottom: spacing.sm,
+  },
+  swipeRightText: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
+  swipeLeftText: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
+  fab: {
+    position: "absolute",
+    bottom: 88,
+    alignSelf: "center",
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: colors.primary,
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    elevation: 8,
   },
 });

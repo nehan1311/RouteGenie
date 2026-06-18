@@ -7,13 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 # Load environment variables BEFORE importing routers
 load_dotenv()
 
-from database import create_tables
+from database import create_tables, seed
 from routers import auth, reports, reps, routes, stores
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     create_tables()
+    seed()
     yield
 
 
