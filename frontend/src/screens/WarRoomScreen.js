@@ -243,7 +243,9 @@ export default function WarRoomScreen() {
                 <AvatarCircle name={rep.rep_name} size={32} />
                 <View style={styles.leaderMeta}>
                   <Text style={styles.leaderName}>{rep.rep_name}</Text>
-                  <Text style={styles.leaderSub}>{rep.completion_pct}% complete</Text>
+                  <Text style={styles.leaderSub}>
+                    {rep.status === "no_route" ? "No assigned route" : `${rep.completion_pct}% complete`}
+                  </Text>
                 </View>
                 <Text style={styles.leaderRev}>{formatMoney(rep.revenue_today)}</Text>
               </View>
@@ -298,7 +300,7 @@ export default function WarRoomScreen() {
                 coordinate={{ latitude: rep.current_lat, longitude: rep.current_lng }}
                 pinColor={rep.status === "behind" ? colors.danger : colors.success}
                 title={rep.rep_name}
-                description={`${rep.completion_pct}% · ${formatMoney(rep.revenue_today)}`}
+                description={`${rep.status === "no_route" ? "No assigned route" : `${rep.completion_pct}%`} · ${formatMoney(rep.revenue_today)}`}
               />
             ))}
           </MapView>
