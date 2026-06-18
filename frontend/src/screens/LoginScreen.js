@@ -9,7 +9,11 @@ import {
   StyleSheet,
   Text,
   View,
+  ImageBackground,
+  Image,
+  ScrollView,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useAuth } from "../auth/AuthContext";
 import { useDemo } from "../context/DemoContext";
 import { AppButton, DarkInput } from "../components/UI";
@@ -42,6 +46,7 @@ export default function LoginScreen() {
   const [email, setEmail] = useState("manager@routegenie.com");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const cardShift = useRef(new Animated.Value(0)).current;
@@ -106,140 +111,231 @@ export default function LoginScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+    <ImageBackground
+      source={require("../../assets/network_bg.png")}
       style={styles.container}
+      resizeMode="cover"
     >
-      <View style={styles.topHalf}>
-        <Pressable onLongPress={handleLogoLongPress} delayLongPress={800}>
-          <FadeSlideIn delay={0}>
-            <View style={styles.brandMark}>
-              <Text style={styles.brandMarkText}>RG</Text>
+      <View style={StyleSheet.absoluteFillObject} backgroundColor="rgba(10, 15, 25, 0.5)" />
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: "center" }}>
+          <View style={styles.topHalf}>
+            <Pressable onLongPress={handleLogoLongPress} delayLongPress={800} style={styles.brandContainer}>
+              <FadeSlideIn delay={0}>
+                <View style={styles.brandMark}>
+                  <Text style={styles.brandMarkText}>RG</Text>
+                </View>
+              </FadeSlideIn>
+              <FadeSlideIn delay={150}>
+                <Text style={styles.title}>RouteGenie</Text>
+              </FadeSlideIn>
+            </Pressable>
+            <FadeSlideIn delay={300}>
+              <Text style={styles.subtitle}>AI-Powered Sales Route & Coverage Optimizer</Text>
+              <Text style={styles.tagline}>Field intelligence, optimised</Text>
+            </FadeSlideIn>
+          </View>
+
+          <Animated.View style={[styles.bottomHalf, { transform: [{ translateY: cardShift }] }]}>
+            <View style={styles.loginCard}>
+              {error ? (
+                <Animated.View
+                  style={[
+                    styles.errorPill,
+                    { opacity: errorOpacity, transform: [{ translateY: errorSlide }] },
+                  ]}
+                >
+                  <Text style={styles.errorText}>{error}</Text>
+                </Animated.View>
+              ) : null}
+
+              <View style={styles.cardHeaderWrap}>
+                <View style={{ flex: 1, paddingRight: 16 }}>
+                  <Text style={styles.cardHeading}>Welcome back</Text>
+                  <Text style={styles.cardSubHeading}>Please enter your details to sign in.</Text>
+                </View>
+                <Image source={require("../../assets/map_icon.png")} style={styles.mapIcon} />
+              </View>
+
+            <DarkInput
+              autoCapitalize="none"
+              autoComplete="email"
+              keyboardType="email-address"
+              icon="mail-outline"
+              onChangeText={setEmail}
+              placeholder="Email address"
+              value={email}
+            />
+
+            <DarkInput
+              autoComplete="password"
+              icon="lock-closed-outline"
+              onChangeText={setPassword}
+              onSubmitEditing={handleLogin}
+              placeholder="Password"
+              rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
+              onRightPress={() => setShowPassword((v) => !v)}
+              secureTextEntry={!showPassword}
+              value={password}
+            />
+
+            <View style={styles.actionsRow}>
+              <Pressable style={styles.rememberRow} onPress={() => setRememberMe(!rememberMe)}>
+                <Ionicons
+                  name={rememberMe ? "checkbox" : "square-outline"}
+                  size={20}
+                  color={rememberMe ? colors.primary : colors.textMuted}
+                />
+                <Text style={styles.rememberText}>Remember me</Text>
+              </Pressable>
+              <Pressable>
+                <Text style={styles.forgotText}>Forgot Password?</Text>
+              </Pressable>
             </View>
-          </FadeSlideIn>
-        </Pressable>
-        <FadeSlideIn delay={150}>
-          <Text style={styles.title}>RouteGenie</Text>
-        </FadeSlideIn>
-        <FadeSlideIn delay={300}>
-          <Text style={styles.tagline}>Field intelligence, optimised</Text>
-        </FadeSlideIn>
-      </View>
 
-      <Animated.View style={[styles.bottomHalf, { transform: [{ translateY: cardShift }] }]}>
-        <View style={styles.loginCard}>
-          {error ? (
-            <Animated.View
-              style={[
-                styles.errorPill,
-                { opacity: errorOpacity, transform: [{ translateY: errorSlide }] },
-              ]}
-            >
-              <Text style={styles.errorText}>{error}</Text>
-            </Animated.View>
-          ) : null}
+            <AppButton
+              title="Sign in"
+              onPress={handleLogin}
+              disabled={submitting}
+              loading={submitting}
+            />
 
-          <Text style={styles.cardHeading}>Welcome back</Text>
+            <Pressable onPress={handleDemoLink} style={styles.demoLinkWrap}>
+              <Text style={styles.demoLink}>Manager demo →</Text>
+            </Pressable>
 
-          <DarkInput
-            autoCapitalize="none"
-            autoComplete="email"
-            keyboardType="email-address"
-            icon="mail-outline"
-            onChangeText={setEmail}
-            placeholder="Email address"
-            value={email}
-          />
-
-          <DarkInput
-            autoComplete="password"
-            icon="lock-closed-outline"
-            onChangeText={setPassword}
-            onSubmitEditing={handleLogin}
-            placeholder="Password"
-            rightIcon={showPassword ? "eye-off-outline" : "eye-outline"}
-            onRightPress={() => setShowPassword((v) => !v)}
-            secureTextEntry={!showPassword}
-            value={password}
-          />
-
-          <AppButton
-            title="Sign in"
-            onPress={handleLogin}
-            disabled={submitting}
-            loading={submitting}
-          />
-
-          <Pressable onPress={handleDemoLink} style={styles.demoLinkWrap}>
-            <Text style={styles.demoLink}>Manager demo →</Text>
-          </Pressable>
-          <Text style={styles.credentialHint}>
-            Demo: manager@routegenie.com / manager123 · Rep: raj@routegenie.com / rep123
-          </Text>
-        </View>
-      </Animated.View>
-    </KeyboardAvoidingView>
+            <View style={styles.demoFooter}>
+              <Text style={styles.credentialHint}>
+                DEMO LOGIN (Manager): manager@routegenie.com | manager123
+              </Text>
+              <Text style={styles.credentialHint}>
+                DEMO LOGIN (Rep): raj@routegenie.com | rep123
+              </Text>
+            </View>
+          </View>
+        </Animated.View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </ImageBackground>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: "#0A0F19",
   },
   topHalf: {
-    flex: 1,
-    justifyContent: "center",
+    alignItems: "center",
     paddingHorizontal: spacing.xl,
-    paddingTop: spacing.xxl,
+    paddingTop: 60,
+    paddingBottom: 40,
   },
   bottomHalf: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xxl,
+    paddingBottom: 60,
+    alignItems: "center",
+  },
+  brandContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.lg,
   },
   brandMark: {
-    width: 72,
-    height: 72,
-    borderRadius: radius.card,
+    width: 42,
+    height: 42,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.primary,
-    marginBottom: spacing.lg,
+    marginRight: 12,
     ...theme.shadow,
   },
   brandMarkText: {
     color: colors.text,
-    fontSize: 28,
+    fontSize: 18,
     fontFamily: fonts.bold,
   },
   title: {
     color: colors.text,
     fontSize: 28,
     fontFamily: fonts.bold,
-    marginBottom: spacing.xs,
+  },
+  subtitle: {
+    color: colors.text,
+    fontSize: 18,
+    fontFamily: fonts.bold,
+    textAlign: "center",
+    marginBottom: 6,
   },
   tagline: {
     color: colors.textSecondary,
     fontSize: 14,
     fontFamily: fonts.body,
+    textAlign: "center",
   },
   loginCard: {
-    backgroundColor: colors.surface,
+    backgroundColor: "rgba(20, 25, 35, 0.75)",
+    backdropFilter: "blur(20px)", // For web blurring
     borderRadius: radius.sheet,
-    padding: 28,
+    padding: 32,
+    width: "100%",
+    maxWidth: 480,
     borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    shadowOffset: { width: 0, height: -4 },
-    elevation: 6,
+    borderColor: "rgba(255, 255, 255, 0.1)",
+    shadowColor: "#000",
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 12 },
+    elevation: 8,
+  },
+  cardHeaderWrap: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.xl,
   },
   cardHeading: {
     color: colors.text,
-    fontSize: 20,
+    fontSize: 22,
     fontFamily: fonts.bold,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  cardSubHeading: {
+    color: colors.textSecondary,
+    fontFamily: fonts.body,
+    fontSize: 14,
+  },
+  mapIcon: {
+    width: 80,
+    height: 60,
+    resizeMode: "contain",
+  },
+  actionsRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: spacing.xl,
+    marginTop: spacing.xs,
+  },
+  rememberRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  rememberText: {
+    color: colors.textSecondary,
+    marginLeft: spacing.sm,
+    fontFamily: fonts.medium,
+    fontSize: 14,
+  },
+  forgotText: {
+    color: colors.primary,
+    fontFamily: fonts.medium,
+    fontSize: 14,
   },
   errorPill: {
     backgroundColor: colors.redSoft,
@@ -257,20 +353,25 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   demoLinkWrap: {
-    marginTop: spacing.lg,
+    marginTop: spacing.xl,
     alignItems: "center",
   },
   demoLink: {
-    color: colors.primary,
+    color: colors.textSecondary,
     fontFamily: fonts.medium,
     fontSize: 13,
+  },
+  demoFooter: {
+    marginTop: spacing.xl,
+    paddingTop: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255, 255, 255, 0.05)",
   },
   credentialHint: {
     color: colors.textMuted,
     fontFamily: fonts.body,
     fontSize: 11,
     textAlign: "center",
-    marginTop: spacing.sm,
-    lineHeight: 16,
+    lineHeight: 18,
   },
 });

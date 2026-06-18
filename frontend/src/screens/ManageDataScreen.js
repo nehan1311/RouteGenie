@@ -24,6 +24,7 @@ import {
   StatusBadge,
   sharedStyles,
 } from "../components/UI";
+import Map, { Marker } from "../components/Map";
 import { SkeletonScreen } from "../components/Skeleton";
 import { theme } from "../theme/colors";
 import { fonts } from "../theme/fonts";
@@ -393,7 +394,6 @@ export default function ManageDataScreen() {
         <View style={styles.sheetBackdrop}>
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setSheetVisible(false)} />
           <View style={styles.sheet}>
-            <View style={styles.handle} />
             <Text style={styles.sheetTitle}>
               {isStoreTab
                 ? storeForm.id
@@ -408,12 +408,28 @@ export default function ManageDataScreen() {
             <ScrollView style={styles.formScroll}>
               {isStoreTab ? (
                 <>
+                  <Text style={styles.fieldLabel}>Tap map to pick location</Text>
+                  <Map
+                    style={{ height: 180, marginBottom: spacing.md, borderRadius: radius.card }}
+                    onMapClick={(lat, lng) => setStoreForm((p) => ({ ...p, lat: String(lat), lng: String(lng) }))}
+                  >
+                    {storeForm.lat && storeForm.lng ? (
+                      <Marker coordinate={{ latitude: Number(storeForm.lat), longitude: Number(storeForm.lng) }} />
+                    ) : null}
+                  </Map>
+                  
                   <Text style={styles.fieldLabel}>Name</Text>
                   <TextInput style={sharedStyles.input} value={storeForm.name} onChangeText={(v) => setStoreForm((p) => ({ ...p, name: v }))} placeholderTextColor={colors.textMuted} />
-                  <Text style={styles.fieldLabel}>Latitude</Text>
-                  <TextInput style={sharedStyles.input} value={storeForm.lat} onChangeText={(v) => setStoreForm((p) => ({ ...p, lat: v }))} keyboardType="numeric" placeholderTextColor={colors.textMuted} />
-                  <Text style={styles.fieldLabel}>Longitude</Text>
-                  <TextInput style={sharedStyles.input} value={storeForm.lng} onChangeText={(v) => setStoreForm((p) => ({ ...p, lng: v }))} keyboardType="numeric" placeholderTextColor={colors.textMuted} />
+                  <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Latitude</Text>
+                      <TextInput style={sharedStyles.input} value={storeForm.lat} onChangeText={(v) => setStoreForm((p) => ({ ...p, lat: v }))} keyboardType="numeric" placeholderTextColor={colors.textMuted} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.fieldLabel}>Longitude</Text>
+                      <TextInput style={sharedStyles.input} value={storeForm.lng} onChangeText={(v) => setStoreForm((p) => ({ ...p, lng: v }))} keyboardType="numeric" placeholderTextColor={colors.textMuted} />
+                    </View>
+                  </View>
                   <Text style={styles.fieldLabel}>Avg order value</Text>
                   <TextInput style={sharedStyles.input} value={storeForm.avg_order_value} onChangeText={(v) => setStoreForm((p) => ({ ...p, avg_order_value: v }))} keyboardType="numeric" placeholderTextColor={colors.textMuted} />
                   <Text style={styles.fieldLabel}>Store type</Text>
@@ -438,10 +454,14 @@ export default function ManageDataScreen() {
               )}
             </ScrollView>
 
-            <AppButton title="Save" onPress={isStoreTab ? handleStoreSubmit : handleRepSubmit} loading={submitting} />
+            <View style={styles.dialogFooter}>
+              <AppButton title="Cancel" variant="secondary" onPress={() => setSheetVisible(false)} style={{ flex: 1 }} />
+              <AppButton title="Save" onPress={isStoreTab ? handleStoreSubmit : handleRepSubmit} loading={submitting} style={{ flex: 1 }} />
+            </View>
+            
             {(isStoreTab ? storeForm.id : repForm.id) ? (
               <Pressable onPress={() => handleDeactivate({ id: isStoreTab ? storeForm.id : repForm.id, name: isStoreTab ? storeForm.name : repForm.name })}>
-                <Text style={styles.deactivateLink}>Deactivate</Text>
+                <Text style={styles.deactivateLink}>Deactivate this {isStoreTab ? "store" : "rep"}</Text>
               </Pressable>
             ) : null}
           </View>
@@ -515,17 +535,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     ...theme.shadow,
   },
-  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.55)", justifyContent: "flex-end" },
+  sheetBackdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.65)", justifyContent: "center", alignItems: "center", padding: spacing.lg },
   sheet: {
     backgroundColor: colors.surfaceElevated,
-    borderTopLeftRadius: radius.sheet,
-    borderTopRightRadius: radius.sheet,
+    borderRadius: radius.card,
     padding: spacing.xl,
-    maxHeight: "85%",
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "90%",
+    ...theme.shadow,
   },
-  handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: colors.border, alignSelf: "center", marginBottom: spacing.lg },
-  sheetTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 18, marginBottom: spacing.md },
-  formScroll: { maxHeight: 360, marginBottom: spacing.md },
+  sheetTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 20, marginBottom: spacing.md },
+  formScroll: { flexShrink: 1, marginBottom: spacing.lg },
+  dialogFooter: { flexDirection: "row", gap: spacing.md },
   fieldLabel: { color: colors.textMuted, fontFamily: fonts.medium, fontSize: 12, marginBottom: 6 },
   pickerShell: { borderWidth: 1, borderColor: colors.border, borderRadius: radius.button, marginBottom: spacing.md, overflow: "hidden" },
   picker: { color: colors.text },

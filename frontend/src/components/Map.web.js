@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { StyleSheet, View } from "react-native";
 import { colors } from "../theme/colors";
 
@@ -36,8 +36,18 @@ function getChildMapData(children) {
   return { markers, polylineCoords };
 }
 
-export default function MapView({ children, style }) {
+export default function MapView({ children, style, onMapClick }) {
   const { markers, polylineCoords } = getChildMapData(children);
+
+  useEffect(() => {
+    function handleMessage(event) {
+      if (event.data?.type === 'MAP_CLICK' && onMapClick) {
+        onMapClick(event.data.lat, event.data.lng);
+      }
+    }
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [onMapClick]);
 
   // We build a self-contained Leaflet HTML/JS document to render inside the iframe.
   // This guarantees perfect coordinate alignment between the map tiles and the markers/polyline overlays,
@@ -89,6 +99,10 @@ export default function MapView({ children, style }) {
           maxZoom: 19,
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a>'
         }).addTo(map);
+
+        map.on('click', function(e) {
+          window.parent.postMessage({ type: 'MAP_CLICK', lat: e.latlng.lat, lng: e.latlng.lng }, '*');
+        });
 
         var markersData = ${JSON.stringify(markers)};
         var polylineData = ${JSON.stringify(polylineCoords)};

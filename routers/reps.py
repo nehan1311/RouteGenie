@@ -53,7 +53,7 @@ def build_rep_out(rep: Rep) -> RepOut:
     )
 
 
-@router.get("/", response_model=list[RepSummary])
+@router.get("/", response_model=list[RepOut])
 def read_reps(
     include_inactive: bool = False,
     db: Session = Depends(get_db),
@@ -66,25 +66,8 @@ def read_reps(
     if not include_inactive:
         query = query.filter(Rep.is_active == True)
     reps = query.all()
-    summaries = []
 
-    for rep in reps:
-        dna = parse_dna_profile(rep)
-        top_store_type = max(dna.conversion_rates, key=dna.conversion_rates.get)
-        summaries.append(
-            RepSummary(
-                id=rep.id,
-                name=rep.name,
-                best_time_window=format_time_window(
-                    rep.best_time_window_start,
-                    rep.best_time_window_end,
-                ),
-                top_store_type=top_store_type,
-                avg_visit_time_minutes=rep.avg_visit_time_minutes,
-            )
-        )
-
-    return summaries
+    return [build_rep_out(rep) for rep in reps]
 
 
 @router.post("/", response_model=RepOut, status_code=201, dependencies=[Depends(require_role("manager"))])
