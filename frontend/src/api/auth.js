@@ -21,6 +21,12 @@ export async function login(email, password) {
     if (email === "raj@routegenie.com" && password === "rep123") {
       return { data: { access_token: "demo-token-rep", role: "rep", rep_id: 1, name: "Raj" }, error: null, status: 200 };
     }
+    if (email === "priya@routegenie.com" && password === "rep123") {
+      return { data: { access_token: "demo-token-priya", role: "rep", rep_id: 2, name: "Priya" }, error: null, status: 200 };
+    }
+    if (email === "anil@routegenie.com" && password === "rep123") {
+      return { data: { access_token: "demo-token-anil", role: "rep", rep_id: 3, name: "Anil" }, error: null, status: 200 };
+    }
     return { data: null, error: "Incorrect email or password", status: 401 };
   }
 

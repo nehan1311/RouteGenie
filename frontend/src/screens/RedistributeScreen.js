@@ -9,11 +9,12 @@ import {
   View,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { Picker } from "@react-native-picker/picker";
 import { api } from "../api/client";
+import { RepPicker } from "../components/RepPicker";
 import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { DemoBadge, HelpFab } from "../components/DemoHelp";
+import { RepRoutePreviewPanel } from "../components/RepRoutePreview";
 import { AppButton, AvatarCircle, EmptyState } from "../components/UI";
 import { SkeletonScreen } from "../components/Skeleton";
 import { theme } from "../theme/colors";
@@ -27,18 +28,53 @@ function urgencyDot(priority) {
   return colors.success;
 }
 
+function buildCatalog(stores, reps) {
+  const assigned = new Map();
+  (reps || []).forEach((rep) => {
+    (rep.stores || []).forEach((stop) => {
+      assigned.set(stop.store_id, rep.rep_name);
+    });
+  });
+
+  return (stores || [])
+    .map((store) => ({
+      store_id: store.id,
+      store_name: store.name,
+      base_priority: store.base_priority || 2,
+      estimated_revenue: Math.round((store.avg_order_value || 0) * 0.45),
+      urgency_status:
+        store.base_priority >= 3 ? "red" : store.base_priority >= 2 ? "yellow" : "green",
+      assigned_to: assigned.get(store.id) || null,
+    }))
+    .sort((a, b) => {
+      if (a.assigned_to && !b.assigned_to) return 1;
+      if (!a.assigned_to && b.assigned_to) return -1;
+      return (b.base_priority || 0) - (a.base_priority || 0);
+    });
+}
+
 export default function RedistributeScreen() {
-  const { name, logout } = useAuth();
+  const { logout } = useAuth();
   const { showToast } = useToast();
-  const [reps, setReps] = useState([]);
+  const [board, setBoard] = useState(null);
+  const [catalog, setCatalog] = useState([]);
+  const [selectedRepId, setSelectedRepId] = useState(null);
   const [fromRepId, setFromRepId] = useState(null);
   const [toRepId, setToRepId] = useState(null);
-  const [fromRoute, setFromRoute] = useState(null);
-  const [toRoute, setToRoute] = useState(null);
-  const [pending, setPending] = useState([]);
+  const [selectedStoreIds, setSelectedStoreIds] = useState(new Set());
+  const [pendingTransfer, setPendingTransfer] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [assigningStoreId, setAssigningStoreId] = useState(null);
+  const [routeRefreshKey, setRouteRefreshKey] = useState(0);
+  const [showRebalance, setShowRebalance] = useState(false);
+  const [showRoutePreview, setShowRoutePreview] = useState(false);
   const [error, setError] = useState("");
+
+  const reps = board?.reps || [];
+  const unassignedStores = board?.unassigned_stores || [];
+  const selectedRep = reps.find((r) => r.rep_id === selectedRepId);
+  const availableStores = useMemo(() => catalog.filter((s) => !s.assigned_to), [catalog]);
 
   function promptLogout() {
     if (Platform.OS === "web") {
@@ -51,266 +87,399 @@ export default function RedistributeScreen() {
     }
   }
 
-  async function loadReps() {
+  async function loadBoard() {
     setLoading(true);
-    const { data, error: apiError } = await api.getReps();
-    if (apiError) setError(apiError);
+    setError("");
+    const [boardRes, storesRes] = await Promise.all([
+      api.getDispatchBoard(),
+      api.getStores(),
+    ]);
+    if (boardRes.error) setError(boardRes.error);
     else {
-      setReps(data || []);
-      if (data?.length) {
-        setFromRepId(data[0].id);
-        setToRepId(data[1]?.id || data[0].id);
+      setBoard(boardRes.data);
+      const repList = boardRes.data?.reps || [];
+      if (repList.length) {
+        setSelectedRepId((prev) => prev || repList[0].rep_id);
+        setFromRepId((prev) => prev || repList[0].rep_id);
+        setToRepId((prev) => prev || repList[1]?.rep_id || repList[0].rep_id);
       }
+      setCatalog(buildCatalog(storesRes.data, boardRes.data?.reps));
     }
+    if (storesRes.error && !boardRes.error) setError(storesRes.error);
     setLoading(false);
   }
 
-  async function fetchRoute(repId, setter) {
-    if (!repId) {
-      setter(null);
-      return;
-    }
-    const { data } = await api.getTodayRoute(repId);
-    setter(data?.stores ? data : null);
-  }
-
   useEffect(() => {
-    loadReps();
+    loadBoard();
   }, []);
 
-  useEffect(() => {
-    fetchRoute(fromRepId, setFromRoute);
-  }, [fromRepId]);
-
-  useEffect(() => {
-    fetchRoute(toRepId, setToRoute);
-  }, [toRepId]);
-
-  function handleRepChange(type, val) {
-    if (pending.length > 0) {
-      if (Platform.OS === "web") {
-        window.alert("Please confirm or cancel pending transfers before switching reps.");
-      } else {
-        Alert.alert("Pending transfers", "Please confirm or cancel pending transfers before switching reps.");
-      }
-      return;
-    }
-    if (type === "from") setFromRepId(val);
-    else setToRepId(val);
-  }
+  const fromRep = useMemo(() => reps.find((r) => r.rep_id === fromRepId), [reps, fromRepId]);
 
   const fromStores = useMemo(() => {
-    const routeStores = fromRoute?.stores || [];
-    const pendingIds = new Set(pending.map((p) => p.store_id));
+    const routeStores = fromRep?.stores || [];
+    const pendingIds = new Set(pendingTransfer.map((p) => p.store_id));
     return routeStores.filter((s) => s.status !== "cancelled" && !pendingIds.has(s.store_id));
-  }, [fromRoute, pending]);
+  }, [fromRep, pendingTransfer]);
 
-  const toStores = useMemo(() => {
-    const routeStores = toRoute?.stores || [];
-    const baseStores = routeStores.filter((s) => s.status !== "cancelled");
-    const incomingStores = pending.map(p => ({
-       ...p,
-       isPending: true
-    }));
-    return [...baseStores, ...incomingStores];
-  }, [toRoute, pending]);
+  async function dispatchStores(storeIds, repId = selectedRepId) {
+    if (!storeIds.length || !repId) return;
+    setSubmitting(true);
+    const { data, error: apiError } = await api.assignStores({
+      to_rep_id: Number(repId),
+      store_ids: storeIds,
+    });
+    setSubmitting(false);
+    setAssigningStoreId(null);
+
+    if (apiError) {
+      if (Platform.OS === "web") window.alert(apiError);
+      else Alert.alert("Dispatch failed", apiError);
+      return;
+    }
+
+    showToast(data?.message || `Route updated for ${data?.to_rep_name || "rep"}`, "success");
+    setSelectedStoreIds(new Set());
+    setRouteRefreshKey((k) => k + 1);
+    await loadBoard();
+  }
+
+  async function instantAssign(store) {
+    if (!selectedRepId) {
+      showToast("Select a delivery partner first", "danger");
+      return;
+    }
+    setAssigningStoreId(store.store_id);
+    await dispatchStores([store.store_id], selectedRepId);
+  }
+
+  async function batchDispatch() {
+    const ids = Array.from(selectedStoreIds);
+    if (!ids.length) return;
+    await dispatchStores(ids, selectedRepId);
+  }
+
+  async function resetToday() {
+    const ok =
+      Platform.OS === "web"
+        ? window.confirm("Clear all routes for today? All stores return to the queue.")
+        : await new Promise((resolve) =>
+            Alert.alert("Reset dispatch?", "All stores return to the queue.", [
+              { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+              { text: "Reset", style: "destructive", onPress: () => resolve(true) },
+            ])
+          );
+    if (!ok) return;
+    setSubmitting(true);
+    const { data, error: apiError } = await api.resetTodayRoutes();
+    setSubmitting(false);
+    if (apiError) {
+      showToast(apiError, "danger");
+      return;
+    }
+    showToast(data?.message || "Routes cleared", "success");
+    setRouteRefreshKey((k) => k + 1);
+    loadBoard();
+  }
+
+  function toggleStoreSelection(storeId) {
+    setSelectedStoreIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(storeId)) next.delete(storeId);
+      else next.add(storeId);
+      return next;
+    });
+  }
 
   function queueTransfer(store) {
     if (!toRepId || fromRepId === toRepId) {
-      if (Platform.OS === "web") {
-        window.alert("Source and destination must differ.");
-      } else {
-        Alert.alert("Invalid Reps", "Source and destination must differ.");
-      }
+      showToast("Pick different source and destination reps", "danger");
       return;
     }
-    setPending((prev) => [
-      ...prev,
-      {
-        store_id: store.store_id,
-        store_name: store.store_name || store.name,
-        base_priority: store.base_priority || 2,
-        estimated_revenue: store.estimated_revenue || 0,
-      },
-    ]);
-  }
-
-  function unqueueTransfer(storeId) {
-    setPending((prev) => prev.filter(p => p.store_id !== storeId));
+    setPendingTransfer((prev) => [...prev, store]);
   }
 
   async function confirmTransfer() {
-    if (!pending.length) return;
+    if (!pendingTransfer.length) return;
     setSubmitting(true);
-    const storeIds = pending.map((p) => p.store_id);
     const { data, error: apiError } = await api.redistribute({
       from_rep_id: Number(fromRepId),
       to_rep_id: Number(toRepId),
-      store_ids: storeIds,
+      store_ids: pendingTransfer.map((p) => p.store_id),
     });
     setSubmitting(false);
     if (apiError) {
       if (Platform.OS === "web") window.alert(apiError);
       else Alert.alert("Transfer failed", apiError);
-    } else {
-      showToast(data.message || "Transfer complete", "success");
-      setPending([]);
-      fetchRoute(fromRepId, setFromRoute);
-      fetchRoute(toRepId, setToRoute);
+      return;
     }
+    showToast(data?.message || "Route rebalanced", "success");
+    setPendingTransfer([]);
+    setRouteRefreshKey((k) => k + 1);
+    loadBoard();
   }
 
   if (loading) return <SkeletonScreen />;
 
-  function renderStoreChip(store, isSource) {
-    const isPending = store.isPending;
-    
-    return (
-      <View
-        key={store.store_id}
-        style={[
-          styles.storeChip,
-          isPending && styles.storeChipPending
-        ]}
-      >
-        <View style={[styles.dot, { backgroundColor: urgencyDot(store.base_priority || 2) }]} />
-        <View style={styles.chipCopy}>
-          <Text style={styles.chipName}>{store.store_name || store.name}</Text>
-          <Text style={styles.chipVal}>Rs.{Math.round(store.estimated_revenue || 0).toLocaleString()}</Text>
-        </View>
-        
-        {isSource ? (
-          <Pressable onPress={() => queueTransfer(store)} style={styles.transferBtn}>
-            <Text style={styles.transferBtnText}>Move</Text>
-            <Ionicons name="arrow-forward" size={16} color={colors.primary} />
-          </Pressable>
-        ) : isPending ? (
-          <Pressable onPress={() => unqueueTransfer(store.store_id)} style={styles.undoBtn}>
-            <Text style={styles.undoBtnText}>Undo</Text>
-            <Ionicons name="close-circle" size={18} color={colors.danger} />
-          </Pressable>
-        ) : null}
-      </View>
-    );
-  }
+  const assignedTotal = reps.reduce((sum, r) => sum + (r.stores_total || 0), 0);
+  const batchCount = selectedStoreIds.size;
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <View style={{ flexDirection: "row", alignItems: "center", flex: 1, gap: spacing.sm }}>
-          <Text style={styles.title}>Redistribute</Text>
-          <DemoBadge />
+        <View style={{ flex: 1 }}>
+          <Text style={styles.title}>Dispatch Center</Text>
+          <Text style={styles.subtitle}>Select rep → assign stores → same route on rep app</Text>
         </View>
+        <DemoBadge />
         <Pressable onPress={promptLogout} style={{ padding: 8 }}>
           <Ionicons name="log-out-outline" size={24} color={colors.danger} />
         </Pressable>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
-        {error ? <EmptyState text={error} actionLabel="Retry" onAction={loadReps} /> : null}
-
-        <View style={styles.board}>
-          {/* SOURCE COLUMN */}
-          <View style={styles.column}>
-            <Text style={styles.colTitle}>Source Route</Text>
-            <View style={styles.pickerShell}>
-              <Picker
-                selectedValue={fromRepId}
-                onValueChange={(val) => handleRepChange("from", val)}
-                style={styles.picker}
-              >
-                {reps.map(r => <Picker.Item key={r.id} label={r.name} value={r.id} />)}
-              </Picker>
-            </View>
-            <View style={styles.routeContainer}>
-              {fromStores.length === 0 ? (
-                <Text style={styles.emptyCol}>No stores on route</Text>
-              ) : (
-                fromStores.map(s => renderStoreChip(s, true))
-              )}
-            </View>
-          </View>
-
-          {/* DESTINATION COLUMN */}
-          <View style={styles.column}>
-            <Text style={styles.colTitle}>Destination Route</Text>
-            <View style={styles.pickerShell}>
-              <Picker
-                selectedValue={toRepId}
-                onValueChange={(val) => handleRepChange("to", val)}
-                style={styles.picker}
-              >
-                {reps.map(r => <Picker.Item key={r.id} label={r.name} value={r.id} />)}
-              </Picker>
-            </View>
-            <View style={styles.routeContainer}>
-              {toStores.length === 0 ? (
-                <Text style={styles.emptyCol}>No stores on route</Text>
-              ) : (
-                toStores.map(s => renderStoreChip(s, false))
-              )}
-            </View>
-          </View>
+      <View style={styles.statsRow}>
+        <View style={styles.statPill}>
+          <Text style={styles.statValue}>{availableStores.length}</Text>
+          <Text style={styles.statLabel}>Available</Text>
         </View>
+        <View style={styles.statPill}>
+          <Text style={styles.statValue}>{assignedTotal}</Text>
+          <Text style={styles.statLabel}>Dispatched</Text>
+        </View>
+        <View style={styles.statPill}>
+          <Text style={styles.statValue}>{catalog.length}</Text>
+          <Text style={styles.statLabel}>Total stores</Text>
+        </View>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.content}>
+        {error ? <EmptyState text={error} actionLabel="Retry" onAction={loadBoard} /> : null}
+
+        <Text style={styles.sectionTitle}>1 · Select delivery partner</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.partnerRow}>
+          {reps.map((rep) => {
+            const active = rep.rep_id === selectedRepId;
+            return (
+              <Pressable
+                key={rep.rep_id}
+                onPress={() => setSelectedRepId(rep.rep_id)}
+                style={[styles.partnerCard, active && styles.partnerCardActive]}
+              >
+                <AvatarCircle name={rep.rep_name} size={36} />
+                <Text style={styles.partnerName}>{rep.rep_name.split(" ")[0]}</Text>
+                <Text style={styles.partnerMeta}>
+                  {rep.has_route ? `${rep.stores_total} stops` : "No route"}
+                </Text>
+                {active ? (
+                  <View style={styles.selectedBadge}>
+                    <Text style={styles.selectedBadgeText}>Selected</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>2 · Store catalog — assign to {selectedRep?.rep_name?.split(" ")[0] || "rep"}</Text>
+          {availableStores.length === 0 ? (
+            <Pressable onPress={resetToday} style={styles.resetBtn}>
+              <Text style={styles.resetBtnText}>Reset queue</Text>
+            </Pressable>
+          ) : null}
+        </View>
+        <Text style={styles.sectionHint}>
+          Dispatch stores below. Rep sees the exact same stops on their route screen.
+        </Text>
+
+        <View style={styles.queueContainer}>
+          {catalog.length === 0 ? (
+            <Text style={styles.emptyCol}>No stores loaded</Text>
+          ) : (
+            catalog.map((store) => {
+              const isAvailable = !store.assigned_to;
+              const checked = selectedStoreIds.has(store.store_id);
+              const busy = assigningStoreId === store.store_id;
+              return (
+                <View key={store.store_id} style={[styles.storeChip, !isAvailable && styles.storeChipAssigned]}>
+                  {isAvailable ? (
+                    <Pressable onPress={() => toggleStoreSelection(store.store_id)} style={styles.checkBox}>
+                      <Ionicons
+                        name={checked ? "checkbox" : "square-outline"}
+                        size={20}
+                        color={checked ? colors.primary : colors.textMuted}
+                      />
+                    </Pressable>
+                  ) : (
+                    <View style={{ width: 24 }} />
+                  )}
+                  <View style={[styles.dot, { backgroundColor: urgencyDot(store.base_priority || 2) }]} />
+                  <View style={styles.chipCopy}>
+                    <Text style={styles.chipName}>{store.store_name}</Text>
+                    <Text style={styles.chipVal}>
+                      Rs.{Math.round(store.estimated_revenue || 0).toLocaleString()} ·{" "}
+                      {isAvailable ? "Available" : `On ${store.assigned_to}'s route`}
+                    </Text>
+                  </View>
+                  {isAvailable ? (
+                    <Pressable
+                      onPress={() => instantAssign(store)}
+                      disabled={busy || submitting}
+                      style={[styles.dispatchBtn, busy && styles.dispatchBtnBusy]}
+                    >
+                      <Text style={styles.dispatchBtnText}>{busy ? "…" : "Dispatch"}</Text>
+                    </Pressable>
+                  ) : null}
+                </View>
+              );
+            })
+          )}
+        </View>
+
+        <Pressable onPress={() => setShowRoutePreview((v) => !v)} style={styles.rebalanceToggle}>
+          <Ionicons name={showRoutePreview ? "chevron-up" : "chevron-down"} size={18} color={colors.primary} />
+          <Text style={styles.rebalanceToggleText}>
+            {selectedRep?.rep_name || "Rep"}&apos;s live route preview
+          </Text>
+        </Pressable>
+        {showRoutePreview && selectedRepId ? (
+          <RepRoutePreviewPanel
+            repId={selectedRepId}
+            repName={selectedRep?.rep_name}
+            refreshKey={routeRefreshKey}
+            compact
+          />
+        ) : null}
+
+        <Pressable onPress={() => setShowRebalance((v) => !v)} style={styles.rebalanceToggle}>
+          <Ionicons name={showRebalance ? "chevron-up" : "chevron-down"} size={18} color={colors.primary} />
+          <Text style={styles.rebalanceToggleText}>Move stops between reps</Text>
+        </Pressable>
+
+        {showRebalance ? (
+          <View style={styles.rebalanceBoard}>
+            <View style={styles.column}>
+              <Text style={styles.colTitle}>Move from</Text>
+              <RepPicker reps={reps} value={fromRepId} onChange={setFromRepId} />
+              {fromStores.map((s) => (
+                <Pressable key={s.store_id} onPress={() => queueTransfer(s)} style={styles.miniChip}>
+                  <Text style={styles.miniChipText}>{s.store_name}</Text>
+                  <Ionicons name="arrow-forward" size={14} color={colors.primary} />
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.column}>
+              <Text style={styles.colTitle}>Move to</Text>
+              <RepPicker reps={reps} value={toRepId} onChange={setToRepId} />
+              {pendingTransfer.map((s) => (
+                <View key={s.store_id} style={styles.miniChipPending}>
+                  <Text style={styles.miniChipText}>{s.store_name}</Text>
+                  <Pressable onPress={() => setPendingTransfer((p) => p.filter((x) => x.store_id !== s.store_id))}>
+                    <Ionicons name="close-circle" size={16} color={colors.danger} />
+                  </Pressable>
+                </View>
+              ))}
+            </View>
+            {pendingTransfer.length ? (
+              <AppButton title={`Confirm move (${pendingTransfer.length})`} onPress={confirmTransfer} loading={submitting} />
+            ) : null}
+          </View>
+        ) : null}
       </ScrollView>
 
-      {/* STICKY ACTION BAR */}
-      {pending.length > 0 && (
+      {batchCount > 0 ? (
         <View style={styles.fabBar}>
           <Text style={styles.fabText}>
-            {pending.length} store{pending.length > 1 ? "s" : ""} pending transfer
+            {batchCount} stop{batchCount > 1 ? "s" : ""} → {selectedRep?.rep_name?.split(" ")[0]}
           </Text>
-          <View style={styles.fabActions}>
-            <AppButton title="Cancel" variant="secondary" onPress={() => setPending([])} />
-            <AppButton title="Confirm Transfer" onPress={confirmTransfer} loading={submitting} />
-          </View>
+          <AppButton title="Dispatch selected" onPress={batchDispatch} loading={submitting} />
         </View>
-      )}
+      ) : null}
 
-      <HelpFab title="Redistribute" description="Dual-list view. Select source and destination reps, then click 'Move' to instantly preview route changes before confirming." />
+      <HelpFab
+        title="Dispatch Center"
+        description="Pick a rep, dispatch stores from the catalog. The rep's My Route screen shows the identical stops in the same order."
+      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
-  header: { flexDirection: "row", alignItems: "center", padding: spacing.lg, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
-  title: { color: colors.text, fontFamily: fonts.bold, fontSize: 20 },
-  content: { padding: spacing.lg, paddingBottom: 160 },
-  board: { flexDirection: "row", gap: spacing.lg },
-  column: { flex: 1 },
-  colTitle: { color: colors.textMuted, fontFamily: fonts.bold, fontSize: 13, marginBottom: spacing.sm, textTransform: "uppercase" },
-  
-  pickerShell: {
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    padding: spacing.lg,
     backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  title: { color: colors.text, fontFamily: fonts.bold, fontSize: 20 },
+  subtitle: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 12, marginTop: 2 },
+  statsRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  statPill: {
+    flex: 1,
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: radius.button,
+    padding: spacing.sm,
+    alignItems: "center",
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.button,
-    marginBottom: spacing.md,
-    overflow: "hidden",
-    height: 48,
-    justifyContent: "center",
   },
-  picker: { 
-    color: colors.text, 
-    backgroundColor: "transparent",
-    height: 48, 
-    borderWidth: 0, 
-    ...Platform.select({
-      web: { outlineStyle: "none", backgroundColor: colors.surface },
-    })
-  },
-  
-  routeContainer: {
+  statValue: { color: colors.text, fontFamily: fonts.bold, fontSize: 18 },
+  statLabel: { color: colors.textMuted, fontFamily: fonts.medium, fontSize: 10, marginTop: 2 },
+  content: { padding: spacing.lg, paddingBottom: 160 },
+  sectionHeaderRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginTop: spacing.md },
+  sectionTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 14, marginBottom: spacing.sm, flex: 1 },
+  sectionHint: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 12, marginBottom: spacing.md },
+  partnerRow: { marginBottom: spacing.md },
+  partnerCard: {
+    width: 110,
+    alignItems: "center",
     backgroundColor: colors.surface,
     borderRadius: radius.card,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.md,
-    minHeight: 300,
+    marginRight: spacing.sm,
+    gap: 4,
   },
-  emptyCol: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 13, textAlign: "center", marginTop: 40 },
-  
+  partnerCardActive: { borderColor: colors.primary, backgroundColor: "rgba(99, 91, 223, 0.12)" },
+  partnerName: { color: colors.text, fontFamily: fonts.bold, fontSize: 13 },
+  partnerMeta: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 10, textAlign: "center" },
+  selectedBadge: {
+    backgroundColor: colors.primary,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginTop: 4,
+  },
+  selectedBadgeText: { color: "#fff", fontFamily: fonts.bold, fontSize: 9 },
+  resetBtn: {
+    backgroundColor: "rgba(239, 68, 68, 0.12)",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    marginBottom: spacing.sm,
+  },
+  resetBtnText: { color: colors.danger, fontFamily: fonts.bold, fontSize: 11 },
+  queueContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    maxHeight: 420,
+  },
+  emptyCol: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 13, textAlign: "center", padding: spacing.xl },
   storeChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -320,42 +489,53 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     marginBottom: spacing.sm,
-    gap: spacing.md,
+    gap: spacing.sm,
   },
-  storeChipPending: {
-    borderColor: colors.primary,
-    backgroundColor: "rgba(99, 91, 223, 0.1)",
-    borderStyle: "dashed",
-    borderWidth: 2,
-  },
-  
+  storeChipAssigned: { opacity: 0.55 },
+  checkBox: { padding: 2 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   chipCopy: { flex: 1 },
   chipName: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
   chipVal: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 12 },
-  
-  transferBtn: {
+  dispatchBtn: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    backgroundColor: "rgba(99, 91, 223, 0.15)",
+    backgroundColor: colors.primary,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 8,
     borderRadius: 999,
   },
-  transferBtnText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 12 },
-  
-  undoBtn: {
+  dispatchBtnBusy: { opacity: 0.6 },
+  dispatchBtnText: { color: "#fff", fontFamily: fonts.bold, fontSize: 12 },
+  rebalanceToggle: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: spacing.lg, marginBottom: spacing.sm },
+  rebalanceToggleText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 13 },
+  rebalanceBoard: { gap: spacing.md, marginBottom: spacing.lg },
+  column: { flex: 1 },
+  colTitle: { color: colors.textMuted, fontFamily: fonts.bold, fontSize: 12, marginBottom: spacing.sm, textTransform: "uppercase" },
+  miniChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(239, 68, 68, 0.15)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
+    justifyContent: "space-between",
+    backgroundColor: colors.surface,
+    borderRadius: radius.button,
+    padding: spacing.sm,
+    marginBottom: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  undoBtnText: { color: colors.danger, fontFamily: fonts.bold, fontSize: 12 },
-
+  miniChipPending: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "rgba(99, 91, 223, 0.1)",
+    borderRadius: radius.button,
+    padding: spacing.sm,
+    marginBottom: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.primary,
+  },
+  miniChipText: { color: colors.text, fontFamily: fonts.medium, fontSize: 12, flex: 1 },
   fabBar: {
     position: "absolute",
     bottom: 0,
@@ -370,6 +550,5 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     ...theme.shadow,
   },
-  fabText: { color: colors.text, fontFamily: fonts.bold, fontSize: 16 },
-  fabActions: { flexDirection: "row", gap: spacing.sm },
+  fabText: { color: colors.text, fontFamily: fonts.bold, fontSize: 15, flex: 1 },
 });

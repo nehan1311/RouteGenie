@@ -8,8 +8,9 @@ import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { useFonts, Inter_400Regular, Inter_500Medium, Inter_700Bold } from "@expo-google-fonts/inter";
 import { View, Text, StyleSheet, Platform, Pressable } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { LoadingState } from "./src/components/UI";
+import { ErrorBoundary } from "./src/components/ErrorBoundary";
 import { AuthProvider, useAuth } from "./src/auth/AuthContext";
 import { DemoProvider } from "./src/context/DemoContext";
 import { ToastProvider } from "./src/context/ToastContext";
@@ -143,29 +144,35 @@ function AppNavigator() {
 }
 
 export default function App() {
-  const [fontsLoaded] = useFonts({
+  const [fontsLoaded, fontError] = useFonts({
     Inter_400Regular,
     Inter_500Medium,
     Inter_700Bold,
   });
 
-  if (!fontsLoaded) {
+  const ready = fontsLoaded || fontError || Platform.OS === "web";
+
+  if (!ready) {
     return <LoadingState text="Loading fonts..." />;
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
-      <DemoProvider>
-        <ToastProvider>
-          <AuthProvider>
-            <NavigationContainer theme={appTheme}>
-              <StatusBar style="light" />
-              <AppNavigator />
-            </NavigationContainer>
-          </AuthProvider>
-        </ToastProvider>
-      </DemoProvider>
-    </GestureHandlerRootView>
+    <ErrorBoundary>
+      <SafeAreaProvider>
+        <GestureHandlerRootView style={{ flex: 1, backgroundColor: colors.background }}>
+          <DemoProvider>
+            <ToastProvider>
+              <AuthProvider>
+                <NavigationContainer theme={appTheme}>
+                  <StatusBar style="light" />
+                  <AppNavigator />
+                </NavigationContainer>
+              </AuthProvider>
+            </ToastProvider>
+          </DemoProvider>
+        </GestureHandlerRootView>
+      </SafeAreaProvider>
+    </ErrorBoundary>
   );
 }
 

@@ -49,9 +49,14 @@ async function request(path, options = {}) {
 
     return { data: payload, error: null, status: response.status };
   } catch (error) {
+    const msg = error?.message || "Network request failed";
+    const friendly =
+      msg === "Failed to fetch"
+        ? `Cannot reach API at ${API_BASE_URL}. Start backend: python -m uvicorn main:app --reload --host 0.0.0.0 --port 8000`
+        : msg;
     return {
       data: null,
-      error: error.message || "Network request failed",
+      error: friendly,
       status: null,
     };
   }
@@ -61,7 +66,7 @@ export const api = {
   healthCheck: () => request("/health"),
 
   getStores: (includeInactive = false) =>
-    request(`/stores/${includeInactive ? "?include_inactive=true" : ""}`),
+    request(includeInactive ? "/stores/?include_inactive=true" : "/stores/"),
   getStoreUrgency: (includeInactive = false) =>
     request(`/stores/urgency${includeInactive ? "?include_inactive=true" : ""}`),
   getStore: (storeId) => request(`/stores/${storeId}`),
@@ -90,7 +95,7 @@ export const api = {
     }),
 
   getReps: (includeInactive = false) =>
-    request(`/reps/${includeInactive ? "?include_inactive=true" : ""}`),
+    request(includeInactive ? "/reps/?include_inactive=true" : "/reps/"),
   getRep: (repId) => request(`/reps/${repId}`),
   getRepDna: (repId) => request(`/reps/${repId}/dna`),
   createRep: (repData) =>
@@ -139,7 +144,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(payload),
     }),
-  getWarRoom: () => request("/routes/manager/war-room", { bypassDemo: true }),
+  getWarRoom: () => request("/routes/manager/war-room"),
+  getDispatchBoard: () => request("/routes/manager/dispatch-board"),
+  assignStores: (payload) =>
+    request("/routes/manager/assign-stores", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+  resetTodayRoutes: () =>
+    request("/routes/manager/reset-today", { method: "POST" }),
   nudgeRep: (repId, message = null) =>
     request("/routes/manager/nudge", {
       method: "POST",

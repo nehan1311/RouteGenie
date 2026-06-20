@@ -4,6 +4,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { theme } from "../theme/colors";
 import { fonts } from "../theme/fonts";
 
+import { USE_NATIVE_DRIVER } from "../utils/animation";
+
 const { colors, radius, spacing } = theme;
 const ToastContext = createContext(null);
 
@@ -15,8 +17,8 @@ export function ToastProvider({ children }) {
 
   const hideToast = useCallback(() => {
     Animated.parallel([
-      Animated.timing(slide, { toValue: -80, duration: 300, useNativeDriver: true }),
-      Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: true }),
+      Animated.timing(slide, { toValue: -80, duration: 300, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.timing(opacity, { toValue: 0, duration: 300, useNativeDriver: USE_NATIVE_DRIVER }),
     ]).start(() => setToast(null));
   }, [opacity, slide]);
 
@@ -27,8 +29,8 @@ export function ToastProvider({ children }) {
       slide.setValue(-80);
       opacity.setValue(0);
       Animated.parallel([
-        Animated.timing(slide, { toValue: 0, duration: 300, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: true }),
+        Animated.timing(slide, { toValue: 0, duration: 300, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(opacity, { toValue: 1, duration: 300, useNativeDriver: USE_NATIVE_DRIVER }),
       ]).start();
       timerRef.current = setTimeout(hideToast, 3000);
     },

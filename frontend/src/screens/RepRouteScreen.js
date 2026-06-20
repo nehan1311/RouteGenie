@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   Alert,
   Animated,
@@ -30,6 +31,7 @@ import {
 import { SkeletonScreen } from "../components/Skeleton";
 import { theme } from "../theme/colors";
 import { fonts } from "../theme/fonts";
+import { USE_NATIVE_DRIVER } from "../utils/animation";
 
 const { colors, spacing, radius } = theme;
 const DEFAULT_LAT = 19.1136;
@@ -50,8 +52,8 @@ function PulsingBeacon() {
       return Animated.loop(
         Animated.sequence([
           Animated.delay(delay),
-          Animated.timing(anim, { toValue: 1, duration: 2000, useNativeDriver: true }),
-          Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 1, duration: 2000, useNativeDriver: USE_NATIVE_DRIVER }),
+          Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: USE_NATIVE_DRIVER }),
         ])
       );
     }
@@ -123,50 +125,58 @@ function SwipeStopCard({
     );
   }
 
+  const cardInner = (
+    <Pressable
+      onLongPress={() =>
+        Alert.alert(stop.store_name || stop.name, "Choose an action", [
+          { text: "Mark done", onPress: () => onDone(stop) },
+          { text: "Cancel stop", style: "destructive", onPress: () => onCancel(stop) },
+          { text: "Get directions", onPress: () => onDirections(stop) },
+          { text: "Dismiss", style: "cancel" },
+        ])
+      }
+      style={[styles.stopCard, isCurrent && styles.stopCurrent]}
+    >
+      <View style={[styles.urgencyBar, { backgroundColor: isCurrent ? colors.primary : urgencyBarColor(stop.urgency_status) }]} />
+      <View style={styles.stopContent}>
+        <Text style={styles.stopName}>{stop.store_name || stop.name}</Text>
+        <Text style={styles.stopMeta}>
+          {stop.planned_arrival || "TBD"} · {revenue}
+        </Text>
+      </View>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginRight: 8 }}>
+        <StatusBadge status={stop.urgency_status} />
+        <Pressable onPress={() => onDone(stop)} style={{ padding: 6, backgroundColor: "rgba(16, 185, 129, 0.15)", borderRadius: 6 }}>
+          <Ionicons name="checkmark" size={18} color="#10B981" />
+        </Pressable>
+        <Pressable onPress={() => onCancel(stop)} style={{ padding: 6, backgroundColor: "rgba(239, 68, 68, 0.15)", borderRadius: 6 }}>
+          <Ionicons name="close" size={18} color="#EF4444" />
+        </Pressable>
+      </View>
+    </Pressable>
+  );
+
   return (
     <Animated.View style={{ maxHeight: heightAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 200] }), opacity: heightAnim, marginBottom: collapsed ? 0 : spacing.sm, overflow: "hidden" }}>
-      <Swipeable
-        renderRightActions={renderRight}
-        renderLeftActions={renderLeft}
-        onSwipeableOpen={(direction) => {
-          if (direction === "right") {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-            onDone(stop);
-          } else {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-            onCancel(stop);
-          }
-        }}
-      >
-        <Pressable
-          onLongPress={() =>
-            Alert.alert(stop.store_name || stop.name, "Choose an action", [
-              { text: "Mark done", onPress: () => onDone(stop) },
-              { text: "Cancel stop", style: "destructive", onPress: () => onCancel(stop) },
-              { text: "Get directions", onPress: () => onDirections(stop) },
-              { text: "Dismiss", style: "cancel" },
-            ])
-          }
-          style={[styles.stopCard, isCurrent && styles.stopCurrent]}
+      {Platform.OS === "web" ? (
+        cardInner
+      ) : (
+        <Swipeable
+          renderRightActions={renderRight}
+          renderLeftActions={renderLeft}
+          onSwipeableOpen={(direction) => {
+            if (direction === "right") {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+              onDone(stop);
+            } else {
+              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              onCancel(stop);
+            }
+          }}
         >
-          <View style={[styles.urgencyBar, { backgroundColor: isCurrent ? colors.primary : urgencyBarColor(stop.urgency_status) }]} />
-          <View style={styles.stopContent}>
-            <Text style={styles.stopName}>{stop.store_name || stop.name}</Text>
-            <Text style={styles.stopMeta}>
-              {stop.planned_arrival || "TBD"} · {revenue}
-            </Text>
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginRight: 8 }}>
-            <StatusBadge status={stop.urgency_status} />
-            <Pressable onPress={() => onDone(stop)} style={{ padding: 6, backgroundColor: "rgba(16, 185, 129, 0.15)", borderRadius: 6 }}>
-              <Ionicons name="checkmark" size={18} color="#10B981" />
-            </Pressable>
-            <Pressable onPress={() => onCancel(stop)} style={{ padding: 6, backgroundColor: "rgba(239, 68, 68, 0.15)", borderRadius: 6 }}>
-              <Ionicons name="close" size={18} color="#EF4444" />
-            </Pressable>
-          </View>
-        </Pressable>
-      </Swipeable>
+          {cardInner}
+        </Swipeable>
+      )}
     </Animated.View>
   );
 }
@@ -176,14 +186,12 @@ export default function RepRouteScreen() {
   const { demoMode } = useDemo();
   const [route, setRoute] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [generating, setGenerating] = useState(false);
   const [busyStoreId, setBusyStoreId] = useState(null);
   const [collapsedIds, setCollapsedIds] = useState(new Set());
   const [message, setMessage] = useState("");
   const [location, setLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const routeFade = useRef(new Animated.Value(0)).current;
-  const btnPulse = useRef(new Animated.Value(1)).current;
 
   async function fetchDeviceLocation(forcePrompt = false) {
     setLocationLoading(true);
@@ -244,49 +252,17 @@ export default function RepRouteScreen() {
     if (error) {
       if (error.includes("No active route")) {
         setRoute(null);
+        setMessage("");
+      } else if (error.includes("Cannot reach API")) {
+        setMessage(error);
       } else {
         setMessage(error);
       }
     } else {
       setRoute(data);
-      Animated.timing(routeFade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      Animated.timing(routeFade, { toValue: 1, duration: 300, useNativeDriver: USE_NATIVE_DRIVER }).start();
     }
     setLoading(false);
-  }
-
-  async function generateRoute() {
-    if (!repId) return;
-    setGenerating(true);
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(btnPulse, { toValue: 0.6, duration: 400, useNativeDriver: true }),
-        Animated.timing(btnPulse, { toValue: 1, duration: 400, useNativeDriver: true }),
-      ])
-    );
-    pulse.start();
-
-    const storesResult = await api.getStores();
-    if (storesResult.error) {
-      setMessage(storesResult.error);
-      setGenerating(false);
-      pulse.stop();
-      return;
-    }
-
-    const candidateStoreIds = (storesResult.data || []).map((s) => s.id);
-    const startLat = location?.latitude || DEFAULT_LAT;
-    const startLng = location?.longitude || DEFAULT_LNG;
-    const routeResult = await api.generateOptimalRoute(repId, candidateStoreIds, startLat, startLng);
-
-    pulse.stop();
-    btnPulse.setValue(1);
-    setGenerating(false);
-
-    if (routeResult.error) {
-      setMessage(routeResult.error);
-      return;
-    }
-    await loadRoute();
   }
 
   async function markDone(stop) {
@@ -332,8 +308,15 @@ export default function RepRouteScreen() {
   }
 
   function openSettings() {
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Enable location",
+        "Click the lock icon in your browser address bar and allow location for this site."
+      );
+      return;
+    }
     if (Platform.OS === "ios") Linking.openURL("app-settings:");
-    else Linking.openSettings();
+    else if (Linking.openSettings) Linking.openSettings();
   }
 
   function promptLogout() {
@@ -350,6 +333,12 @@ export default function RepRouteScreen() {
   useEffect(() => {
     loadRoute();
   }, [repId]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadRoute();
+    }, [repId])
+  );
 
   if (loading && !route && !demoMode) {
     return <SkeletonScreen />;
@@ -382,19 +371,27 @@ export default function RepRouteScreen() {
         ) : null}
 
         {!route ? (
-          <Animated.View style={{ opacity: btnPulse }}>
-            <AppButton
-              title="Build today's route"
-              icon="location-outline"
-              onPress={generateRoute}
-              disabled={generating || locationLoading}
-              loading={generating}
-            />
-          </Animated.View>
+          <View style={styles.waitingBox}>
+            <Ionicons name="time-outline" size={28} color={colors.primary} />
+            <Text style={styles.waitingTitle}>Waiting for dispatch</Text>
+            <Text style={styles.assignHintText}>
+              Your manager assigns stops from Dispatch Center. This screen shows the exact same route — refresh after dispatch.
+            </Text>
+            <AppButton title="Refresh route" icon="refresh-outline" onPress={loadRoute} loading={loading} />
+          </View>
         ) : null}
 
         {route ? (
           <Animated.View style={{ opacity: routeFade }}>
+            <View style={styles.dispatchedBanner}>
+              <Ionicons name="shield-checkmark" size={16} color={colors.success} />
+              <Text style={styles.dispatchedText}>
+                Manager dispatched route · {stops.length} stops (same as Dispatch Center)
+              </Text>
+              <Pressable onPress={loadRoute} style={{ padding: 4 }}>
+                <Ionicons name="refresh-outline" size={16} color={colors.primary} />
+              </Pressable>
+            </View>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.metricRow}>
               <MetricPill icon="flag-outline" label="Total stops" value={stops.length} />
               <MetricPill icon="cash-outline" label="Est. revenue" value={`Rs.${Math.round(totalRevenue / 1000)}k`} />
@@ -445,7 +442,7 @@ export default function RepRouteScreen() {
           </Animated.View>
         ) : null}
 
-        {message ? <EmptyState text={message} actionLabel="Build today's route" onAction={generateRoute} /> : null}
+        {message && !route ? <EmptyState text={message} actionLabel="Refresh route" onAction={loadRoute} /> : null}
       </ScrollView>
 
       {hasCancellation ? (
@@ -456,7 +453,7 @@ export default function RepRouteScreen() {
 
       <HelpFab
         title="My Route"
-        description="Generate an optimised daily route, track stops on the map, swipe right to complete or left to skip, and replan after cancellations."
+        description="Shows the exact route your manager dispatched. Tap refresh after dispatch — reps cannot self-generate a different route."
       />
     </View>
   );
@@ -489,6 +486,41 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   locationPillText: { color: colors.warning, fontFamily: fonts.medium, fontSize: 12 },
+  assignHint: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+    backgroundColor: "rgba(99, 91, 223, 0.12)",
+    borderRadius: radius.button,
+    padding: spacing.md,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  assignHintText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.body, fontSize: 12, lineHeight: 18, textAlign: "center" },
+  waitingBox: {
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.xl,
+    marginBottom: spacing.md,
+  },
+  waitingTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 16 },
+  dispatchedBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "rgba(16, 185, 129, 0.12)",
+    borderRadius: radius.button,
+    padding: spacing.sm,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: "rgba(16, 185, 129, 0.3)",
+  },
+  dispatchedText: { flex: 1, color: colors.success, fontFamily: fonts.bold, fontSize: 12 },
   metricRow: { marginBottom: spacing.md },
   mapWrap: { borderRadius: radius.card, overflow: "hidden", marginBottom: spacing.lg, position: "relative" },
   map: { height: 240, width: "100%" },

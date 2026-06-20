@@ -13,11 +13,12 @@ import {
 } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
-import MapView, { Marker } from "../components/Map";
+import MapView, { Marker, Polyline } from "../components/Map";
 import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useDemo } from "../context/DemoContext";
 import { useToast } from "../context/ToastContext";
+import { RepRoutePreviewModal } from "../components/RepRoutePreview";
 import { DemoBadge, HelpFab } from "../components/DemoHelp";
 import { MetricPill } from "../components/MetricPill";
 import { AvatarCircle, EmptyState } from "../components/UI";
@@ -25,7 +26,18 @@ import { SkeletonScreen } from "../components/Skeleton";
 import { theme } from "../theme/colors";
 import { fonts } from "../theme/fonts";
 
+import { USE_NATIVE_DRIVER } from "../utils/animation";
+
 const { colors, spacing, radius } = theme;
+
+const REP_COLORS = ["#635BDF", "#10B981", "#F59E0B", "#3B82F6", "#EC4899"];
+
+function stopPinColor(status, repColor) {
+  if (status === "done") return colors.success;
+  if (status === "cancelled") return colors.textMuted;
+  if (status === "unassigned") return "#94A3B8";
+  return repColor;
+}
 
 function formatMoney(value) {
   const amount = Number(value || 0);
@@ -122,8 +134,8 @@ function PulsingDot() {
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(opacity, { toValue: 0.2, duration: 800, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(opacity, { toValue: 0.2, duration: 800, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(opacity, { toValue: 1, duration: 800, useNativeDriver: USE_NATIVE_DRIVER }),
       ])
     ).start();
   }, [opacity]);
@@ -137,8 +149,10 @@ export default function WarRoomScreen() {
   const { width } = useWindowDimensions();
   const twoCol = width >= 760;
   const [data, setData] = useState(null);
+  const [dispatch, setDispatch] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [previewRep, setPreviewRep] = useState(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
@@ -156,9 +170,13 @@ export default function WarRoomScreen() {
   async function refresh() {
     if (!demoMode) setLoading(true);
     setError("");
-    const { data: payload, error: apiError } = await api.getWarRoom();
-    if (apiError) setError(apiError);
-    else setData(payload);
+    const [warResult, dispatchResult] = await Promise.all([
+      api.getWarRoom(),
+      api.getDispatchBoard(),
+    ]);
+    if (warResult.error) setError(warResult.error);
+    else setData(warResult.data);
+    if (!dispatchResult.error) setDispatch(dispatchResult.data);
     setLoading(false);
   }
 
@@ -174,6 +192,8 @@ export default function WarRoomScreen() {
 
   const metrics = useMemo(() => buildMetrics(data), [data]);
   const reps = data?.reps || [];
+  const dispatchReps = dispatch?.reps || [];
+  const unassigned = dispatch?.unassigned_stores || [];
   const filtered = searchQuery
     ? metrics.leaderboard.filter((r) => r.rep_name.toLowerCase().includes(searchQuery.toLowerCase()))
     : metrics.leaderboard;
@@ -238,7 +258,11 @@ export default function WarRoomScreen() {
           <View style={styles.panel}>
             <Text style={styles.panelTitle}>Leaderboard</Text>
             {filtered.map((rep, index) => (
-              <View key={rep.rep_id} style={[styles.leaderRow, rep.status === "on_track" && styles.leaderOnTrack]}>
+              <Pressable
+                key={rep.rep_id}
+                onPress={() => setPreviewRep(rep)}
+                style={[styles.leaderRow, rep.status === "on_track" && styles.leaderOnTrack]}
+              >
                 <Text style={styles.rank}>{index + 1}</Text>
                 <AvatarCircle name={rep.rep_name} size={32} />
                 <View style={styles.leaderMeta}>
@@ -248,7 +272,8 @@ export default function WarRoomScreen() {
                   </Text>
                 </View>
                 <Text style={styles.leaderRev}>{formatMoney(rep.revenue_today)}</Text>
-              </View>
+                <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
+              </Pressable>
             ))}
             <GoalRing percent={metrics.averageCompletion} />
           </View>
@@ -283,29 +308,99 @@ export default function WarRoomScreen() {
           );
         })}
 
-        <Text style={[styles.panelTitle, { marginTop: spacing.lg }]}>Live map</Text>
+        <Text style={[styles.panelTitle, { marginTop: spacing.lg }]}>Live dispatch map</Text>
+        <Text style={styles.mapHint}>
+          Store stops by rep · dashed routes · gray = awaiting assignment
+        </Text>
         <View style={styles.mapWrap}>
           <MapView
             style={styles.map}
             initialRegion={{
-              latitude: reps[0]?.current_lat || 19.1136,
-              longitude: reps[0]?.current_lng || 72.8697,
+              latitude: reps[0]?.current_lat || dispatchReps[0]?.stores?.[0]?.lat || 19.1136,
+              longitude: reps[0]?.current_lng || dispatchReps[0]?.stores?.[0]?.lng || 72.8697,
               latitudeDelta: 0.08,
               longitudeDelta: 0.08,
             }}
           >
-            {reps.map((rep) => (
+            {dispatchReps.map((rep, repIndex) => {
+              const repColor = REP_COLORS[repIndex % REP_COLORS.length];
+              const coords = (rep.stores || [])
+                .filter((s) => s.status !== "cancelled")
+                .map((s) => ({ latitude: s.lat, longitude: s.lng }));
+              if (coords.length > 1) {
+                return (
+                  <Polyline
+                    key={`line-${rep.rep_id}`}
+                    coordinates={coords}
+                    strokeColor={repColor}
+                    strokeWidth={3}
+                  />
+                );
+              }
+              return null;
+            })}
+
+            {unassigned.map((store) => (
               <Marker
-                key={rep.rep_id}
+                key={`unassigned-${store.store_id}`}
+                coordinate={{ latitude: store.lat, longitude: store.lng }}
+                pinColor={stopPinColor("unassigned")}
+                title={store.store_name}
+                description="Awaiting dispatch"
+              />
+            ))}
+
+            {dispatchReps.flatMap((rep, repIndex) => {
+              const repColor = REP_COLORS[repIndex % REP_COLORS.length];
+              return (rep.stores || []).map((store) => (
+                <Marker
+                  key={`${rep.rep_id}-${store.store_id}`}
+                  coordinate={{ latitude: store.lat, longitude: store.lng }}
+                  pinColor={stopPinColor(store.status, repColor)}
+                  title={store.store_name}
+                  description={`${rep.rep_name} · ${store.status} · stop ${store.order || "—"}`}
+                />
+              ));
+            })}
+
+            {reps.map((rep, repIndex) => (
+              <Marker
+                key={`rep-${rep.rep_id}`}
                 coordinate={{ latitude: rep.current_lat, longitude: rep.current_lng }}
-                pinColor={rep.status === "behind" ? colors.danger : colors.success}
-                title={rep.rep_name}
-                description={`${rep.status === "no_route" ? "No assigned route" : `${rep.completion_pct}%`} · ${formatMoney(rep.revenue_today)}`}
+                pinColor={REP_COLORS[repIndex % REP_COLORS.length]}
+                title={`${rep.rep_name} (live)`}
+                description={`${rep.status === "no_route" ? "No route" : `${rep.completion_pct}%`} · ${formatMoney(rep.revenue_today)}`}
               />
             ))}
           </MapView>
         </View>
+
+        {dispatchReps.length ? (
+          <View style={styles.legendRow}>
+            {dispatchReps.map((rep, repIndex) => (
+              <View key={rep.rep_id} style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: REP_COLORS[repIndex % REP_COLORS.length] }]} />
+                <Text style={styles.legendText}>
+                  {rep.rep_name.split(" ")[0]} · {rep.stores_done}/{rep.stores_total}
+                </Text>
+              </View>
+            ))}
+            {unassigned.length ? (
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: "#94A3B8" }]} />
+                <Text style={styles.legendText}>Queue · {unassigned.length}</Text>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
       </ScrollView>
+
+      <RepRoutePreviewModal
+        repId={previewRep?.rep_id}
+        repName={previewRep?.rep_name}
+        visible={Boolean(previewRep)}
+        onClose={() => setPreviewRep(null)}
+      />
 
       <HelpFab
         title="War Room"
@@ -404,5 +499,10 @@ const styles = StyleSheet.create({
   nudgeBtn: { paddingHorizontal: spacing.sm, paddingVertical: 4 },
   nudgeText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 12 },
   mapWrap: { borderRadius: radius.card, overflow: "hidden" },
-  map: { height: 220, width: "100%" },
+  map: { height: 280, width: "100%" },
+  mapHint: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 11, marginBottom: spacing.sm },
+  legendRow: { flexDirection: "row", flexWrap: "wrap", gap: spacing.md, marginTop: spacing.sm },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { color: colors.textSecondary, fontFamily: fonts.medium, fontSize: 11 },
 });

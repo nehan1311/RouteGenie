@@ -41,29 +41,150 @@ const DEMO_STORES = [
   { id: 105, name: "Wellness Plus", lat: 19.125, lng: 72.859, avg_order_value: 6700, store_type: "pharmacy", base_priority: 3, is_active: true, last_visited_date: "2026-06-11" },
 ];
 
-function demoRoute(repId = 1) {
+const DEMO_STOP_META = {
+  101: { urgency_status: "red", status: "pending", planned_arrival: "09:30", estimated_revenue: 8200 },
+  102: { urgency_status: "yellow", status: "pending", planned_arrival: "10:15", estimated_revenue: 4500 },
+  103: { urgency_status: "green", status: "done", planned_arrival: "11:00", estimated_revenue: 12500 },
+  104: { urgency_status: "green", status: "pending", planned_arrival: "14:00", estimated_revenue: 3100 },
+  105: { urgency_status: "red", status: "pending", planned_arrival: "12:10", estimated_revenue: 6700 },
+};
+
+/** rep_id -> ordered store ids */
+let demoRepRoutes = {
+  1: [101, 102, 103],
+  2: [105],
+  3: [],
+};
+
+let demoRouteGenerated = true;
+let demoTick = 0;
+
+function storeById(id) {
+  return DEMO_STORES.find((s) => s.id === id);
+}
+
+function buildStop(storeId, order, repId) {
+  const store = storeById(storeId);
+  if (!store) return null;
+  const meta = DEMO_STOP_META[storeId] || {
+    urgency_status: "yellow",
+    status: "pending",
+    planned_arrival: "10:00",
+    estimated_revenue: Math.round(store.avg_order_value * 0.45),
+  };
   return {
-    rep_id: repId,
-    date: new Date().toISOString().slice(0, 10),
-    recommended_visit_count: 6,
-    candidate_count: 12,
-    total_estimated_revenue: 48200,
-    total_drive_minutes: 95,
-    dropped_count: 2,
-    dropped_stores: [
-      { store_id: 104, store_name: "City General Store", reason: "Lower urgency today" },
-    ],
-    stores: [
-      { store_id: 101, store_name: "Apollo Pharmacy", lat: 19.117, lng: 72.865, urgency_status: "red", status: "pending", planned_arrival: "09:30", estimated_revenue: 8200, store_type: "pharmacy" },
-      { store_id: 102, store_name: "Ganesh Kirana", lat: 19.121, lng: 72.871, urgency_status: "yellow", status: "pending", planned_arrival: "10:15", estimated_revenue: 4500, store_type: "grocery" },
-      { store_id: 103, store_name: "TechZone Mobiles", lat: 19.109, lng: 72.878, urgency_status: "green", status: "done", planned_arrival: "11:00", estimated_revenue: 12500, store_type: "electronics" },
-      { store_id: 105, store_name: "Wellness Plus", lat: 19.125, lng: 72.859, urgency_status: "red", status: "pending", planned_arrival: "12:10", estimated_revenue: 6700, store_type: "pharmacy" },
-    ],
+    order,
+    store_id: store.id,
+    store_name: store.name,
+    lat: store.lat,
+    lng: store.lng,
+    store_type: store.store_type,
+    base_priority: store.base_priority,
+    avg_order_value: store.avg_order_value,
+    urgency_status: meta.urgency_status,
+    status: meta.status,
+    planned_arrival: meta.planned_arrival,
+    estimated_revenue: meta.estimated_revenue,
   };
 }
 
-let demoTick = 0;
-let demoRouteGenerated = false;
+function demoRoute(repId = 1) {
+  const storeIds = demoRepRoutes[repId] || [];
+  const stores = storeIds.map((id, index) => buildStop(id, index + 1, repId)).filter(Boolean);
+  const assigned = new Set(Object.values(demoRepRoutes).flat());
+  const dropped = DEMO_STORES.filter((s) => !assigned.has(s.id)).map((s) => ({
+    store_id: s.id,
+    store_name: s.name,
+    urgency_status: s.base_priority >= 3 ? "red" : "yellow",
+    reason: "Awaiting dispatch assignment",
+  }));
+
+  return {
+    rep_id: repId,
+    route_id: repId * 100,
+    date: new Date().toISOString().slice(0, 10),
+    status: "active",
+    recommended_visit_count: stores.length,
+    candidate_count: DEMO_STORES.length,
+    total_estimated_revenue: stores.reduce((sum, s) => sum + (s.estimated_revenue || 0), 0),
+    total_drive_minutes: 95,
+    dropped_count: dropped.length,
+    dropped_stores: dropped,
+    stores,
+  };
+}
+
+function buildDispatchBoard() {
+  const assigned = new Set(Object.values(demoRepRoutes).flat());
+  const unassigned = DEMO_STORES.filter((s) => !assigned.has(s.id)).map((s) => ({
+    store_id: s.id,
+    store_name: s.name,
+    lat: s.lat,
+    lng: s.lng,
+    store_type: s.store_type,
+    base_priority: s.base_priority,
+    avg_order_value: s.avg_order_value,
+    urgency_status: s.base_priority >= 3 ? "red" : s.base_priority >= 2 ? "yellow" : "green",
+    estimated_revenue: Math.round(s.avg_order_value * 0.45),
+    status: "unassigned",
+    order: null,
+  }));
+
+  const reps = DEMO_REPS.map((rep) => {
+    const route = demoRoute(rep.id);
+    const stores = route.stores || [];
+    const done = stores.filter((s) => s.status === "done").length;
+    const total = stores.length;
+    const completion = total ? Math.round((done / total) * 100) : 0;
+    const jitter = rep.id === 1 ? (demoTick % 5) * 2 : 0;
+
+    return {
+      rep_id: rep.id,
+      rep_name: rep.name,
+      has_route: total > 0,
+      stores_total: total,
+      stores_done: done,
+      stores_remaining: Math.max(0, total - done),
+      completion_pct: Math.min(100, completion + jitter),
+      status: total === 0 ? "no_route" : completion + jitter >= 50 ? "on_track" : "behind",
+      revenue_today: stores.reduce((sum, s) => sum + (s.status === "done" ? s.estimated_revenue : 0), 0),
+      stores: stores.map((s) => ({
+        store_id: s.store_id,
+        store_name: s.store_name,
+        lat: s.lat,
+        lng: s.lng,
+        store_type: s.store_type,
+        base_priority: s.base_priority,
+        avg_order_value: s.avg_order_value,
+        urgency_status: s.urgency_status,
+        estimated_revenue: s.estimated_revenue,
+        status: s.status,
+        order: s.order,
+      })),
+    };
+  });
+
+  return {
+    date: new Date().toISOString().slice(0, 10),
+    total_reps: DEMO_REPS.length,
+    unassigned_stores: unassigned,
+    reps,
+  };
+}
+
+function removeStoresFromRep(repId, storeIds) {
+  const set = new Set(storeIds);
+  demoRepRoutes[repId] = (demoRepRoutes[repId] || []).filter((id) => !set.has(id));
+}
+
+function addStoresToRep(repId, storeIds) {
+  const existing = demoRepRoutes[repId] || [];
+  const merged = [...existing];
+  storeIds.forEach((id) => {
+    if (!merged.includes(id)) merged.push(id);
+  });
+  demoRepRoutes[repId] = merged;
+}
 
 export function getDemoMockResponse(path, options = {}) {
   demoTick += 1;
@@ -82,24 +203,41 @@ export function getDemoMockResponse(path, options = {}) {
   }
 
   if (path.match(/\/routes\/\d+\/today/)) {
-    if (!demoRouteGenerated) {
+    const repId = Number(path.split("/")[2]);
+    const storeIds = demoRepRoutes[repId] || [];
+    if (!storeIds.length && !demoRouteGenerated) {
       return { data: null, error: "No active route", status: 404 };
     }
-    const repId = Number(path.split("/")[2]);
+    if (!storeIds.length) {
+      return { data: null, error: "No active route", status: 404 };
+    }
     return { data: demoRoute(repId), error: null, status: 200 };
   }
 
+  if (path === "/routes/manager/dispatch-board") {
+    return { data: buildDispatchBoard(), error: null, status: 200 };
+  }
+
   if (path === "/routes/manager/war-room") {
+    const board = buildDispatchBoard();
     const jitter = (demoTick % 5) * 2;
     return {
       data: {
-        date: new Date().toISOString().slice(0, 10),
-        total_reps: 3,
-        reps: [
-          { rep_id: 1, rep_name: "Priya Sharma", status: "on_track", completion_pct: 58 + jitter, revenue_today: 18400 + jitter * 120, stores_total: 6, stores_done: 3, current_lat: 19.117, current_lng: 72.865, last_active: new Date().toISOString() },
-          { rep_id: 2, rep_name: "Rahul Mehta", status: "behind", completion_pct: 32, revenue_today: 9200, stores_total: 5, stores_done: 1, current_lat: 19.109, current_lng: 72.878, last_active: new Date(Date.now() - 720000).toISOString() },
-          { rep_id: 3, rep_name: "Anita Desai", status: "on_track", completion_pct: 71, revenue_today: 22100, stores_total: 7, stores_done: 5, current_lat: 19.125, current_lng: 72.859, last_active: new Date().toISOString() },
-        ],
+        date: board.date,
+        total_reps: board.total_reps,
+        reps: board.reps.map((rep) => ({
+          rep_id: rep.rep_id,
+          rep_name: rep.rep_name,
+          status: rep.status,
+          completion_pct: rep.completion_pct,
+          revenue_today: rep.revenue_today + (rep.rep_id === 1 ? jitter * 120 : 0),
+          stores_total: rep.stores_total,
+          stores_done: rep.stores_done,
+          stores_remaining: rep.stores_remaining,
+          current_lat: rep.stores[0]?.lat || 19.1136,
+          current_lng: rep.stores[0]?.lng || 72.8697,
+          last_active: new Date().toISOString(),
+        })),
       },
       error: null,
       status: 200,
@@ -109,7 +247,36 @@ export function getDemoMockResponse(path, options = {}) {
   if (path === "/routes/generate-optimal" || path === "/routes/generate") {
     demoRouteGenerated = true;
     const body = options.body ? JSON.parse(options.body) : {};
-    return { data: demoRoute(body.rep_id || 1), error: null, status: 200 };
+    const repId = body.rep_id || 1;
+    const storeIds = body.store_ids || DEMO_STORES.map((s) => s.id);
+    Object.keys(demoRepRoutes).forEach((repKey) => {
+      removeStoresFromRep(Number(repKey), storeIds);
+    });
+    demoRepRoutes[repId] = storeIds;
+    return { data: demoRoute(repId), error: null, status: 200 };
+  }
+
+  if (path === "/routes/manager/assign-stores") {
+    const body = options.body ? JSON.parse(options.body) : {};
+    const toRepId = body.to_rep_id;
+    const storeIds = body.store_ids || [];
+    Object.keys(demoRepRoutes).forEach((repKey) => {
+      if (Number(repKey) !== toRepId) removeStoresFromRep(Number(repKey), storeIds);
+    });
+    addStoresToRep(toRepId, storeIds);
+    demoRouteGenerated = true;
+    return {
+      data: {
+        message: `Route generated for rep ${toRepId} — ${storeIds.length} stop(s) (demo).`,
+        to_rep_id: toRepId,
+        to_rep_name: DEMO_REPS.find((r) => r.id === toRepId)?.name || "Rep",
+        store_count: (demoRepRoutes[toRepId] || []).length,
+        stores_moved: storeIds,
+        route: demoRoute(toRepId).stores,
+      },
+      error: null,
+      status: 200,
+    };
   }
 
   if (path === "/routes/manager/what-if") {
@@ -127,7 +294,20 @@ export function getDemoMockResponse(path, options = {}) {
   }
 
   if (path === "/routes/manager/redistribute") {
-    return { data: { message: "Stores redistributed successfully (demo)." }, error: null, status: 200 };
+    const body = options.body ? JSON.parse(options.body) : {};
+    const { from_rep_id: fromRepId, to_rep_id: toRepId, store_ids: storeIds = [] } = body;
+    removeStoresFromRep(fromRepId, storeIds);
+    addStoresToRep(toRepId, storeIds);
+    return {
+      data: {
+        message: "Stores redistributed successfully (demo).",
+        from_rep: { rep_id: fromRepId, store_count: (demoRepRoutes[fromRepId] || []).length },
+        to_rep: { rep_id: toRepId, store_count: (demoRepRoutes[toRepId] || []).length },
+        stores_moved: storeIds,
+      },
+      error: null,
+      status: 200,
+    };
   }
 
   if (path === "/reports/generate") {

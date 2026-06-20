@@ -369,6 +369,54 @@ class RedistributeResponse(BaseModel):
     stores_moved: list[int]
 
 
+class DispatchStoreItem(BaseModel):
+    store_id: int
+    store_name: str
+    lat: float
+    lng: float
+    store_type: str
+    base_priority: int
+    avg_order_value: float
+    urgency_status: str
+    estimated_revenue: float
+    status: str
+    order: int | None = None
+
+
+class DispatchRepRoute(BaseModel):
+    rep_id: int
+    rep_name: str
+    has_route: bool
+    stores_total: int
+    stores_done: int
+    stores_remaining: int
+    completion_pct: float
+    status: str
+    revenue_today: float
+    stores: list[DispatchStoreItem]
+
+
+class DispatchBoardResponse(BaseModel):
+    date: str
+    total_reps: int
+    unassigned_stores: list[DispatchStoreItem]
+    reps: list[DispatchRepRoute]
+
+
+class AssignStoresRequest(BaseModel):
+    to_rep_id: int
+    store_ids: list[int]
+
+
+class AssignStoresResponse(BaseModel):
+    message: str
+    to_rep_id: int
+    to_rep_name: str
+    store_count: int
+    stores_moved: list[int]
+    route: list[dict[str, Any]] = []
+
+
 class WhatIfRequest(BaseModel):
     rep_id: int
     scenario: Literal["add_stores", "delay_start", "filter_by_value"]

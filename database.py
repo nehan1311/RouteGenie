@@ -39,6 +39,20 @@ def create_tables():
             store_cols = [col[1] for col in cursor.fetchall()]
             if "is_active" not in store_cols:
                 cursor.execute("ALTER TABLE stores ADD COLUMN is_active BOOLEAN DEFAULT 1;")
+            if "stock_depletion_rate" not in store_cols:
+                cursor.execute("ALTER TABLE stores ADD COLUMN stock_depletion_rate FLOAT DEFAULT 0.1;")
+            if "closed_days" not in store_cols:
+                cursor.execute("ALTER TABLE stores ADD COLUMN closed_days TEXT DEFAULT 'None';")
+
+            cursor.execute(
+                "UPDATE stores SET stock_depletion_rate = 0.1 WHERE stock_depletion_rate IS NULL;"
+            )
+            cursor.execute(
+                "UPDATE stores SET closed_days = 'None' WHERE closed_days IS NULL OR closed_days = '';"
+            )
+            cursor.execute(
+                "UPDATE stores SET is_active = 1 WHERE is_active IS NULL;"
+            )
                 
             # Check reps table
             cursor.execute("PRAGMA table_info(reps);")
@@ -62,6 +76,36 @@ def create_tables():
         with open("db_info.txt", "w") as f:
             f.write(f"Error: {e}\n")
 
+def ensure_rep_users(db):
+    """Keep login emails aligned with rep IDs from seed.py (Raj=1, Priya=2, Anil=3)."""
+    import models
+    from passlib.context import CryptContext
+
+    pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+    accounts = [
+        ("manager@routegenie.com", "manager", None),
+        ("raj@routegenie.com", "rep", 1),
+        ("priya@routegenie.com", "rep", 2),
+        ("anil@routegenie.com", "rep", 3),
+    ]
+    for email, role, rep_id in accounts:
+        user = db.query(models.User).filter(models.User.email == email).first()
+        if user:
+            user.role = role
+            user.rep_id = rep_id
+        else:
+            db.add(
+                models.User(
+                    email=email,
+                    hashed_password=pwd_context.hash("manager123" if role == "manager" else "rep123"),
+                    role=role,
+                    rep_id=rep_id,
+                    created_at="2026-06-18T00:00:00",
+                )
+            )
+    db.commit()
+
+
 def seed():
     import models
     from passlib.context import CryptContext
@@ -70,11 +114,7 @@ def seed():
     db = SessionLocal()
     pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
     
-    # Always clear route entries so the user can test the "Build Route" flow
-    db.query(models.RouteEntry).delete()
-    db.commit()
-    
-    # Check if we need to seed
+    # Check if we need to seed demo reps/stores
     if db.query(models.User).count() == 0:
         print("Seeding database...")
         # Reps
@@ -89,24 +129,24 @@ def seed():
         
         # Stores
         stores_data = [
-            {"id": 101, "name": "Apollo Pharmacy", "lat": 19.117, "lng": 72.865, "avg_order_value": 8200.0, "store_type": "pharmacy", "base_priority": 3, "is_active": True, "last_visited_date": "2026-06-10"},
-            {"id": 102, "name": "Ganesh Kirana", "lat": 19.121, "lng": 72.871, "avg_order_value": 4500.0, "store_type": "grocery", "base_priority": 2, "is_active": True, "last_visited_date": "2026-06-12"},
-            {"id": 103, "name": "TechZone Mobiles", "lat": 19.109, "lng": 72.878, "avg_order_value": 12500.0, "store_type": "electronics", "base_priority": 2, "is_active": True, "last_visited_date": "2026-06-08"},
-            {"id": 104, "name": "City General Store", "lat": 19.115, "lng": 72.882, "avg_order_value": 3100.0, "store_type": "general", "base_priority": 1, "is_active": True, "last_visited_date": "2026-06-14"},
-            {"id": 105, "name": "Wellness Plus", "lat": 19.125, "lng": 72.859, "avg_order_value": 6700.0, "store_type": "pharmacy", "base_priority": 3, "is_active": True, "last_visited_date": "2026-06-11"},
+            {"id": 101, "name": "Apollo Pharmacy", "lat": 19.117, "lng": 72.865, "avg_order_value": 8200.0, "store_type": "pharmacy", "base_priority": 3, "is_active": True, "last_visited_date": "2026-06-10", "stock_depletion_rate": 0.12, "closed_days": "None"},
+            {"id": 102, "name": "Ganesh Kirana", "lat": 19.121, "lng": 72.871, "avg_order_value": 4500.0, "store_type": "grocery", "base_priority": 2, "is_active": True, "last_visited_date": "2026-06-12", "stock_depletion_rate": 0.10, "closed_days": "None"},
+            {"id": 103, "name": "TechZone Mobiles", "lat": 19.109, "lng": 72.878, "avg_order_value": 12500.0, "store_type": "electronics", "base_priority": 2, "is_active": True, "last_visited_date": "2026-06-08", "stock_depletion_rate": 0.08, "closed_days": "Sunday"},
+            {"id": 104, "name": "City General Store", "lat": 19.115, "lng": 72.882, "avg_order_value": 3100.0, "store_type": "general", "base_priority": 1, "is_active": True, "last_visited_date": "2026-06-14", "stock_depletion_rate": 0.15, "closed_days": "None"},
+            {"id": 105, "name": "Wellness Plus", "lat": 19.125, "lng": 72.859, "avg_order_value": 6700.0, "store_type": "pharmacy", "base_priority": 3, "is_active": True, "last_visited_date": "2026-06-11", "stock_depletion_rate": 0.11, "closed_days": "None"},
         ]
         for s in stores_data:
-            if not db.query(models.Store).filter(models.Store.id == s["id"]).first():
+            existing = db.query(models.Store).filter(models.Store.id == s["id"]).first()
+            if existing is None:
                 db.add(models.Store(**s))
+            else:
+                for key, value in s.items():
+                    if key != "id" and getattr(existing, key, None) in (None, ""):
+                        setattr(existing, key, value)
         
-        # Users
-        manager_email = "manager@routegenie.com"
-        if not db.query(models.User).filter(models.User.email == manager_email).first():
-            db.add(models.User(email=manager_email, hashed_password=pwd_context.hash("manager123"), role="manager", created_at="2026-06-18T00:00:00"))
-            
-        rep_email = "raj@routegenie.com"
-        if not db.query(models.User).filter(models.User.email == rep_email).first():
-            db.add(models.User(email=rep_email, hashed_password=pwd_context.hash("rep123"), role="rep", rep_id=3, created_at="2026-06-18T00:00:00"))
+        # Users seeded via ensure_rep_users below
             
         db.commit()
+
+    ensure_rep_users(db)
     db.close()

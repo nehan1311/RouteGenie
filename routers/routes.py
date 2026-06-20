@@ -14,6 +14,9 @@ from schemas import (
     OptimalRouteResponse,
     ReplanRequest,
     ReplanResponse,
+    AssignStoresRequest,
+    AssignStoresResponse,
+    DispatchBoardResponse,
     RedistributeRequest,
     RedistributeResponse,
     RouteGenerateRequest,
@@ -497,6 +500,234 @@ def manager_war_room(
         )
 
     return {"date": today, "total_reps": len(reps), "reps": rep_statuses}
+
+
+def estimate_store_revenue(store: Store, rep: Rep) -> float:
+    rep_dna = parse_rep_dna(rep)
+    rate = rep_dna.get("conversion_rates", {}).get(store.store_type, 0.0)
+    return round(store.avg_order_value * rate, 2)
+
+
+def build_dispatch_store_item(
+    store: Store,
+    *,
+    rep: Rep | None = None,
+    status: str = "unassigned",
+    order: int | None = None,
+) -> dict:
+    urgency = urgency_for_store(store)
+    estimated_revenue = estimate_store_revenue(store, rep) if rep else round(store.avg_order_value * 0.4, 2)
+    return {
+        "store_id": store.id,
+        "store_name": store.name,
+        "lat": store.lat,
+        "lng": store.lng,
+        "store_type": store.store_type,
+        "base_priority": store.base_priority,
+        "avg_order_value": store.avg_order_value,
+        "urgency_status": urgency["urgency_status"],
+        "estimated_revenue": estimated_revenue,
+        "status": status,
+        "order": order,
+    }
+
+
+@router.get("/manager/dispatch-board", response_model=DispatchBoardResponse)
+def manager_dispatch_board(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("manager")),
+):
+    today = date.today().isoformat()
+    reps = db.query(Rep).filter(Rep.is_active == True).order_by(Rep.id).all()
+    all_stores = db.query(Store).filter(Store.is_active == True).all()
+    stores_by_id = {store.id: store for store in all_stores}
+    assigned_store_ids: set[int] = set()
+    rep_routes: list[dict] = []
+
+    for rep in reps:
+        route_entry = get_active_route_entry(db, rep.id, today)
+        visit_logs = (
+            db.query(VisitLog)
+            .filter(
+                VisitLog.rep_id == rep.id,
+                VisitLog.visited_at.like(f"{today}%"),
+            )
+            .all()
+        )
+        revenue_today = sum(
+            visit.revenue or 0 for visit in visit_logs if visit.outcome == "sale"
+        )
+        cancelled_ids = {
+            visit.store_id for visit in visit_logs if visit.outcome == "cancelled"
+        }
+        completed_ids = {
+            visit.store_id for visit in visit_logs if visit.outcome != "cancelled"
+        }
+
+        if route_entry is None:
+            rep_routes.append(
+                {
+                    "rep_id": rep.id,
+                    "rep_name": rep.name,
+                    "has_route": False,
+                    "stores_total": 0,
+                    "stores_done": 0,
+                    "stores_remaining": 0,
+                    "completion_pct": 0.0,
+                    "status": "no_route",
+                    "revenue_today": round(revenue_today, 2),
+                    "stores": [],
+                }
+            )
+            continue
+
+        ordered_store_ids = json.loads(route_entry.store_ids_ordered)
+        assigned_store_ids.update(ordered_store_ids)
+        route_stores = []
+        for order, store_id in enumerate(ordered_store_ids, start=1):
+            store = stores_by_id.get(store_id)
+            if store is None:
+                continue
+            if store_id in completed_ids:
+                stop_status = "done"
+            elif store_id in cancelled_ids:
+                stop_status = "cancelled"
+            else:
+                stop_status = "pending"
+            route_stores.append(
+                build_dispatch_store_item(
+                    store,
+                    rep=rep,
+                    status=stop_status,
+                    order=order,
+                )
+            )
+
+        stores_total = len(ordered_store_ids)
+        stores_done = len([store_id for store_id in ordered_store_ids if store_id in completed_ids])
+        stores_remaining = max(0, stores_total - stores_done)
+        completion_pct = round((stores_done / stores_total) * 100, 2) if stores_total else 0.0
+        status = "on_track" if completion_pct >= 50 else "behind"
+
+        rep_routes.append(
+            {
+                "rep_id": rep.id,
+                "rep_name": rep.name,
+                "has_route": True,
+                "stores_total": stores_total,
+                "stores_done": stores_done,
+                "stores_remaining": stores_remaining,
+                "completion_pct": completion_pct,
+                "status": status,
+                "revenue_today": round(revenue_today, 2),
+                "stores": route_stores,
+            }
+        )
+
+    unassigned_stores = [
+        build_dispatch_store_item(store)
+        for store in all_stores
+        if store.id not in assigned_store_ids
+    ]
+    unassigned_stores.sort(
+        key=lambda item: (-item["base_priority"], -item["estimated_revenue"])
+    )
+
+    return {
+        "date": today,
+        "total_reps": len(reps),
+        "unassigned_stores": unassigned_stores,
+        "reps": rep_routes,
+    }
+
+
+@router.post("/manager/reset-today")
+def manager_reset_today_routes(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("manager")),
+):
+    today = date.today().isoformat()
+    deleted = (
+        db.query(RouteEntry)
+        .filter(RouteEntry.date == today, RouteEntry.status == "active")
+        .delete()
+    )
+    db.commit()
+    return {"message": f"Cleared {deleted} route(s) for today — all stores back in queue", "routes_cleared": deleted}
+
+
+@router.post("/manager/assign-stores", response_model=AssignStoresResponse)
+def manager_assign_stores(
+    request: AssignStoresRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("manager")),
+):
+    if not request.store_ids:
+        raise HTTPException(status_code=400, detail="store_ids cannot be empty")
+
+    today = date.today().isoformat()
+    to_rep = db.query(Rep).filter(Rep.id == request.to_rep_id).first()
+    if to_rep is None:
+        raise HTTPException(status_code=404, detail="Rep not found")
+
+    store_ids_set = set(request.store_ids)
+    active_entries = (
+        db.query(RouteEntry)
+        .filter(RouteEntry.date == today, RouteEntry.status == "active")
+        .all()
+    )
+
+    for entry in active_entries:
+        if entry.rep_id == request.to_rep_id:
+            continue
+
+        existing_ids = json.loads(entry.store_ids_ordered)
+        remaining_ids = [store_id for store_id in existing_ids if store_id not in store_ids_set]
+        if len(remaining_ids) == len(existing_ids):
+            continue
+
+        source_rep = db.query(Rep).filter(Rep.id == entry.rep_id).first()
+        if source_rep is None:
+            continue
+
+        if remaining_ids:
+            route_response = generate_route_for_store_ids(source_rep, remaining_ids, db)
+            entry.store_ids_ordered = json.dumps(
+                [stop["store_id"] for stop in route_response["route"]]
+            )
+        else:
+            entry.store_ids_ordered = json.dumps([])
+
+    to_entry = get_active_route_entry(db, request.to_rep_id, today)
+    if to_entry is None:
+        to_entry = RouteEntry(
+            rep_id=request.to_rep_id,
+            date=today,
+            store_ids_ordered=json.dumps([]),
+            status="active",
+        )
+        db.add(to_entry)
+        db.flush()
+
+    existing_ids = json.loads(to_entry.store_ids_ordered)
+    merged_ids = existing_ids + [
+        store_id for store_id in request.store_ids if store_id not in existing_ids
+    ]
+    to_route = generate_route_for_store_ids(to_rep, merged_ids, db)
+    to_entry.store_ids_ordered = json.dumps(
+        [stop["store_id"] for stop in to_route["route"]]
+    )
+
+    db.commit()
+
+    return {
+        "message": f"Route generated for {to_rep.name} — {len(merged_ids)} stop(s)",
+        "to_rep_id": request.to_rep_id,
+        "to_rep_name": to_rep.name,
+        "store_count": len(merged_ids),
+        "stores_moved": request.store_ids,
+        "route": to_route["route"],
+    }
 
 
 @router.post("/manager/redistribute", response_model=RedistributeResponse)
