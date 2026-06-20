@@ -256,6 +256,18 @@ export function getDemoMockResponse(path, options = {}) {
     return { data: demoRoute(repId), error: null, status: 200 };
   }
 
+  if (path === "/routes/manager/reset-today") {
+    Object.keys(demoRepRoutes).forEach((repKey) => {
+      demoRepRoutes[repKey] = [];
+    });
+    demoRouteGenerated = false;
+    return {
+      data: { message: "Cleared all demo routes for today", routes_cleared: Object.keys(demoRepRoutes).length },
+      error: null,
+      status: 200,
+    };
+  }
+
   if (path === "/routes/manager/assign-stores") {
     const body = options.body ? JSON.parse(options.body) : {};
     const toRepId = body.to_rep_id;

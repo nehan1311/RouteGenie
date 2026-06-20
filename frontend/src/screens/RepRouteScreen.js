@@ -24,6 +24,7 @@ import { DemoBadge, HelpFab } from "../components/DemoHelp";
 import { SkeletonScreen } from "../components/Skeleton";
 import { fonts } from "../theme/fonts";
 import { EmptyState } from "../components/UI";
+import { USE_NATIVE_DRIVER } from "../utils/animation";
 
 const dashTheme = {
   bg: "#0F172A",
@@ -203,6 +204,7 @@ export default function RepRouteScreen() {
   const [message, setMessage] = useState("");
   const [location, setLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const routeFade = useRef(new Animated.Value(0)).current;
 
   async function fetchDeviceLocation(forcePrompt = false) {
@@ -256,13 +258,14 @@ export default function RepRouteScreen() {
     return `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&waypoints=${encodeURIComponent(waypoints)}`;
   }, [activeStops, location]);
 
-  async function loadRoute() {
+  async function loadRoute(silent = false) {
     if (!repId) {
       setMessage("No rep profile linked to this account.");
       setLoading(false);
       return;
     }
-    setLoading(true);
+    if (silent) setRefreshing(true);
+    else setLoading(true);
     setMessage("");
     const { data, error } = await api.getTodayRoute(repId);
     if (error) {
@@ -276,9 +279,11 @@ export default function RepRouteScreen() {
       }
     } else {
       setRoute(data);
+      routeFade.setValue(0);
       Animated.timing(routeFade, { toValue: 1, duration: 300, useNativeDriver: USE_NATIVE_DRIVER }).start();
     }
-    setLoading(false);
+    if (silent) setRefreshing(false);
+    else setLoading(false);
   }
 
   async function markDone(stop) {
@@ -401,19 +406,29 @@ export default function RepRouteScreen() {
           </Pressable>
         ) : null}
 
-        {/* HERO CTA - Always visible as the primary action banner */}
-        <Animated.View style={{ opacity: btnPulse }}>
-          <Pressable 
-            style={[styles.heroBanner, generating && { opacity: 0.7 }]} 
-            onPress={generateRoute} 
-            disabled={generating || locationLoading}
-          >
-            <View style={styles.heroContent}>
-              <Ionicons name="navigate-circle" size={28} color="#FFF" />
-              <Text style={styles.heroText}>{generating ? "Building Route..." : "Build today's route"}</Text>
+        <Pressable
+          style={[
+            styles.heroBanner,
+            route ? styles.heroBannerSynced : null,
+            (refreshing || loading) && { opacity: 0.7 },
+          ]}
+          onPress={() => loadRoute(true)}
+          disabled={refreshing || loading}
+        >
+          <View style={styles.heroContent}>
+            <Ionicons name={route ? "shield-checkmark" : "refresh-circle"} size={28} color="#FFF" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroText}>
+                {refreshing ? "Refreshing..." : route ? `Manager route · ${stops.length} stops` : "Refresh route"}
+              </Text>
+              <Text style={styles.heroSubtext}>
+                {route
+                  ? "Same stops as Dispatch Center · tap to refresh"
+                  : "Waiting for manager dispatch from Dispatch Center"}
+              </Text>
             </View>
-          </Pressable>
-        </Animated.View>
+          </View>
+        </Pressable>
 
         {route ? (
           <Animated.View style={{ opacity: routeFade }}>
@@ -554,15 +569,29 @@ export default function RepRouteScreen() {
           </Animated.View>
         ) : null}
 
-        {message && !route ? <EmptyState text={message} actionLabel="Refresh route" onAction={loadRoute} /> : null}
+        {!route && !message && !loading ? (
+          <EmptyState
+            text="No route yet. Your manager assigns stops from Dispatch Center — tap Refresh above after dispatch."
+            actionLabel="Refresh route"
+            onAction={() => loadRoute(true)}
+          />
+        ) : null}
+
+        {message && !route ? (
+          <EmptyState text={message} actionLabel="Refresh route" onAction={() => loadRoute(true)} />
+        ) : null}
       </ScrollView>
 
       {hasCancellation ? (
-        <Pressable style={styles.fab} onPress={loadRoute}>
+        <Pressable style={styles.fab} onPress={() => loadRoute(true)}>
           <Ionicons name="refresh" size={24} color={dashTheme.textMain} />
         </Pressable>
       ) : null}
 
+      <HelpFab
+        title="My Route"
+        description="Shows the exact route your manager dispatched. Tap refresh after dispatch — reps cannot self-generate a different route."
+      />
     </View>
   );
 }
@@ -618,8 +647,10 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 8,
   },
-  heroContent: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  heroContent: { flexDirection: 'row', alignItems: 'center', gap: 12, width: '100%' },
   heroText: { color: '#FFF', fontFamily: fonts.bold, fontSize: 18 },
+  heroSubtext: { color: 'rgba(255,255,255,0.85)', fontFamily: fonts.medium, fontSize: 12, marginTop: 2 },
+  heroBannerSynced: { backgroundColor: dashTheme.success },
   dashboardGrid: { flexDirection: 'column', gap: 24 },
   dashboardGridDesktop: { flexDirection: 'row', alignItems: 'flex-start' },
   leftColumn: { display: 'flex', gap: 24 },
