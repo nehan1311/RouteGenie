@@ -736,6 +736,8 @@ def get_today_route(
             "store_type": store.store_type,
             "urgency_status": urgency_for_store(store)["urgency_status"],
             "planned_arrival": visit_log.visited_at[11:16] if (visit_log and visit_log.outcome != "cancelled" and len(visit_log.visited_at) >= 16) else current_time.strftime("%H:%M"),
+            "travel_time_minutes": travel_time_minutes,
+            "visit_duration_minutes": rep.avg_visit_time_minutes,
             "estimated_revenue": estimated_revenue,
             "status": "done" if store_id in completed_store_ids else ("cancelled" if visit_log and visit_log.outcome == "cancelled" else "pending"),
         }
