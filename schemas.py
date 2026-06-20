@@ -403,6 +403,30 @@ class DispatchBoardResponse(BaseModel):
     reps: list[DispatchRepRoute]
 
 
+class RepStoreFitItem(BaseModel):
+    store_id: int
+    store_name: str
+    store_type: str
+    fit_score: float
+    dna_match_pct: float
+    priority_label: str
+    reason: str
+    historical_visits: int
+    past_winner: bool
+    past_success_rate_pct: int
+    past_avg_revenue: float
+
+
+class RepStoreFitResponse(BaseModel):
+    rep_id: int
+    rep_name: str
+    top_store_type: str
+    top_store_type_pct: float
+    avg_visit_time_minutes: int
+    area_speed_factor: float
+    stores: list[RepStoreFitItem]
+
+
 class AssignStoresRequest(BaseModel):
     to_rep_id: int
     store_ids: list[int]

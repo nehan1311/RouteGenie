@@ -28,7 +28,7 @@ function urgencyDot(priority) {
   return colors.success;
 }
 
-function buildCatalog(stores, reps) {
+function buildCatalog(stores, reps, fitByStoreId = {}) {
   const assigned = new Map();
   (reps || []).forEach((rep) => {
     (rep.stores || []).forEach((stop) => {
@@ -37,20 +37,38 @@ function buildCatalog(stores, reps) {
   });
 
   return (stores || [])
-    .map((store) => ({
-      store_id: store.id,
-      store_name: store.name,
-      base_priority: store.base_priority || 2,
-      estimated_revenue: Math.round((store.avg_order_value || 0) * 0.45),
-      urgency_status:
-        store.base_priority >= 3 ? "red" : store.base_priority >= 2 ? "yellow" : "green",
-      assigned_to: assigned.get(store.id) || null,
-    }))
+    .map((store) => {
+      const fit = fitByStoreId[store.id] || {};
+      return {
+        store_id: store.id,
+        store_name: store.name,
+        store_type: store.store_type,
+        base_priority: store.base_priority || 2,
+        estimated_revenue: Math.round((store.avg_order_value || 0) * 0.45),
+        urgency_status:
+          store.base_priority >= 3 ? "red" : store.base_priority >= 2 ? "yellow" : "green",
+        assigned_to: assigned.get(store.id) || null,
+        fit_score: fit.fit_score ?? null,
+        dna_match_pct: fit.dna_match_pct ?? null,
+        priority_label: fit.priority_label ?? null,
+        fit_reason: fit.reason ?? null,
+        past_winner: fit.past_winner ?? false,
+      };
+    })
     .sort((a, b) => {
       if (a.assigned_to && !b.assigned_to) return 1;
       if (!a.assigned_to && b.assigned_to) return -1;
+      if (!a.assigned_to && !b.assigned_to) {
+        return (b.fit_score ?? 0) - (a.fit_score ?? 0) || (b.base_priority || 0) - (a.base_priority || 0);
+      }
       return (b.base_priority || 0) - (a.base_priority || 0);
     });
+}
+
+function fitBadgeColor(label) {
+  if (label === "Past performer" || label === "DNA top match") return colors.success;
+  if (label === "Good DNA match" || label === "Category experience") return colors.primary;
+  return colors.textMuted;
 }
 
 export default function RedistributeScreen() {
@@ -70,6 +88,7 @@ export default function RedistributeScreen() {
   const [showRebalance, setShowRebalance] = useState(false);
   const [showRoutePreview, setShowRoutePreview] = useState(false);
   const [showAssigned, setShowAssigned] = useState(false);
+  const [repFit, setRepFit] = useState(null);
   const [error, setError] = useState("");
 
   const reps = board?.reps || [];
@@ -89,6 +108,25 @@ export default function RedistributeScreen() {
     }
   }
 
+  async function loadRepFit(repId, boardReps = null) {
+    if (!repId) return;
+    const repsForCatalog = boardReps || board?.reps;
+    const [fitRes, storesRes] = await Promise.all([
+      api.getRepStoreFit(repId),
+      api.getStores(),
+    ]);
+    if (fitRes.data) {
+      setRepFit(fitRes.data);
+      const fitMap = Object.fromEntries(
+        (fitRes.data.stores || []).map((item) => [item.store_id, item])
+      );
+      const storesFromApi = storesRes.data;
+      if (storesFromApi?.length) {
+        setCatalog(buildCatalog(storesFromApi, repsForCatalog, fitMap));
+      }
+    }
+  }
+
   async function loadBoard() {
     setLoading(true);
     setError("");
@@ -100,12 +138,14 @@ export default function RedistributeScreen() {
     else {
       setBoard(boardRes.data);
       const repList = boardRes.data?.reps || [];
+      const nextRepId = selectedRepId || repList[0]?.rep_id;
       if (repList.length) {
         setSelectedRepId((prev) => prev || repList[0].rep_id);
         setFromRepId((prev) => prev || repList[0].rep_id);
         setToRepId((prev) => prev || repList[1]?.rep_id || repList[0].rep_id);
       }
       setCatalog(buildCatalog(storesRes.data, boardRes.data?.reps));
+      if (nextRepId) loadRepFit(nextRepId, repList);
     }
     if (storesRes.error && !boardRes.error) setError(storesRes.error);
     setLoading(false);
@@ -114,6 +154,10 @@ export default function RedistributeScreen() {
   useEffect(() => {
     loadBoard();
   }, []);
+
+  useEffect(() => {
+    if (selectedRepId) loadRepFit(selectedRepId);
+  }, [selectedRepId]);
 
   const fromRep = useMemo(() => reps.find((r) => r.rep_id === fromRepId), [reps, fromRepId]);
 
@@ -143,6 +187,7 @@ export default function RedistributeScreen() {
     setSelectedStoreIds(new Set());
     setRouteRefreshKey((k) => k + 1);
     await loadBoard();
+    if (selectedRepId) await loadRepFit(selectedRepId);
   }
 
   async function instantAssign(store) {
@@ -220,12 +265,26 @@ export default function RedistributeScreen() {
     loadBoard();
   }
 
+  function selectDnaPicks() {
+    const topIds = availableStores
+      .filter((s) => s.fit_score != null)
+      .slice(0, 5)
+      .map((s) => s.store_id);
+    if (!topIds.length) {
+      showToast("No DNA priority data yet for this rep", "danger");
+      return;
+    }
+    setSelectedStoreIds(new Set(topIds));
+    showToast(`Selected top ${topIds.length} DNA-matched stores`, "success");
+  }
+
   function renderStoreRow(store, { dispatchable = true } = {}) {
     const isAvailable = !store.assigned_to;
     const checked = selectedStoreIds.has(store.store_id);
     const busy = assigningStoreId === store.store_id;
     const onSelectedRep =
       store.assigned_to && store.assigned_to === selectedRep?.rep_name;
+    const showFit = isAvailable && store.fit_score != null;
 
     return (
       <View
@@ -234,6 +293,7 @@ export default function RedistributeScreen() {
           styles.storeChip,
           !isAvailable && styles.storeChipAssigned,
           onSelectedRep && styles.storeChipOnSelectedRep,
+          store.past_winner && isAvailable && styles.storeChipPastWinner,
         ]}
       >
         {dispatchable && isAvailable ? (
@@ -256,7 +316,20 @@ export default function RedistributeScreen() {
             Rs.{Math.round(store.estimated_revenue || 0).toLocaleString()} ·{" "}
             {isAvailable ? "Available" : onSelectedRep ? `On ${selectedRep?.rep_name?.split(" ")[0]}'s route` : `On ${store.assigned_to}'s route`}
           </Text>
+          {showFit ? (
+            <Text style={styles.chipFitReason} numberOfLines={1}>
+              {store.fit_reason}
+            </Text>
+          ) : null}
         </View>
+        {showFit ? (
+          <View style={[styles.fitBadge, { borderColor: fitBadgeColor(store.priority_label) }]}>
+            <Text style={[styles.fitBadgeText, { color: fitBadgeColor(store.priority_label) }]}>
+              {store.past_winner ? "★ " : ""}
+              {Math.round(store.fit_score)}%
+            </Text>
+          </View>
+        ) : null}
         {dispatchable && isAvailable ? (
           <Pressable
             onPress={() => instantAssign(store)}
@@ -330,6 +403,25 @@ export default function RedistributeScreen() {
             );
           })}
         </ScrollView>
+
+        {repFit ? (
+          <View style={styles.dnaBanner}>
+            <Ionicons name="sparkles" size={18} color={colors.primary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.dnaBannerTitle}>
+                DNA priority for {repFit.rep_name?.split(" ")[0]} · best at {repFit.top_store_type} ({repFit.top_store_type_pct}%)
+              </Text>
+              <Text style={styles.dnaBannerSub}>
+                Stores sorted by past visits + conversion profile · avg visit {repFit.avg_visit_time_minutes}m
+              </Text>
+            </View>
+            {availableStores.length > 0 ? (
+              <Pressable onPress={selectDnaPicks} style={styles.dnaPickBtn}>
+                <Text style={styles.dnaPickBtnText}>DNA picks</Text>
+              </Pressable>
+            ) : null}
+          </View>
+        ) : null}
 
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>2 · Store catalog — assign to {selectedRep?.rep_name?.split(" ")[0] || "rep"}</Text>
@@ -626,8 +718,37 @@ const styles = StyleSheet.create({
   },
   storeChipAssigned: { opacity: 0.65 },
   storeChipOnSelectedRep: { borderColor: colors.primary, opacity: 1 },
+  storeChipPastWinner: { borderColor: colors.success, backgroundColor: "rgba(34, 201, 122, 0.08)" },
   checkBox: { padding: 2, width: 24 },
   checkBoxSpacer: { width: 24 },
+  dnaBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "rgba(61, 111, 255, 0.08)",
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: "rgba(61, 111, 255, 0.2)",
+    padding: spacing.md,
+    marginBottom: spacing.md,
+  },
+  dnaBannerTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 12 },
+  dnaBannerSub: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 11, marginTop: 2 },
+  dnaPickBtn: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  dnaPickBtnText: { color: "#fff", fontFamily: fonts.bold, fontSize: 11 },
+  fitBadge: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  fitBadgeText: { fontFamily: fonts.bold, fontSize: 10 },
+  chipFitReason: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 10, marginTop: 2 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   chipCopy: { flex: 1 },
   chipName: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },

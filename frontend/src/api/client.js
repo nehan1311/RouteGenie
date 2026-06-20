@@ -146,6 +146,7 @@ export const api = {
     }),
   getWarRoom: () => request("/routes/manager/war-room"),
   getDispatchBoard: () => request("/routes/manager/dispatch-board"),
+  getRepStoreFit: (repId) => request(`/routes/manager/rep-store-fit/${repId}`),
   assignStores: (payload) =>
     request("/routes/manager/assign-stores", {
       method: "POST",

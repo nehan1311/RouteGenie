@@ -218,6 +218,47 @@ export function getDemoMockResponse(path, options = {}) {
     return { data: buildDispatchBoard(), error: null, status: 200 };
   }
 
+  const repFitMatch = path.match(/^\/routes\/manager\/rep-store-fit\/(\d+)$/);
+  if (repFitMatch) {
+    const repId = Number(repFitMatch[1]);
+    const rep = DEMO_REPS.find((r) => r.id === repId) || DEMO_REPS[0];
+    const rates = rep.dna_profile?.conversion_rates || {};
+    const topEntry = Object.entries(rates).sort((a, b) => b[1] - a[1])[0] || ["general", 0.5];
+    const typeAlias = { pharmacy: "medical", grocery: "kirana", electronics: "general", general: "general" };
+    const stores = DEMO_STORES.map((store) => {
+      const normalized = typeAlias[store.store_type] || store.store_type;
+      const rateKey = Object.keys(rates).find((k) => (typeAlias[k] || k) === normalized) || store.store_type;
+      const dnaRate = rates[rateKey] ?? 0.4;
+      const fitScore = Math.round(Math.min(98, dnaRate * 100 + (store.id % 7)));
+      return {
+        store_id: store.id,
+        store_name: store.name,
+        store_type: store.store_type,
+        fit_score: fitScore,
+        dna_match_pct: Math.round(dnaRate * 100),
+        priority_label: fitScore >= 60 ? "Good DNA match" : "Standard",
+        reason: `${Math.round(dnaRate * 100)}% conversion at ${store.store_type} stores`,
+        historical_visits: store.id % 3,
+        past_winner: store.id % 5 === 0,
+        past_success_rate_pct: store.id % 2 ? 100 : 50,
+        past_avg_revenue: Math.round(store.avg_order_value * dnaRate),
+      };
+    }).sort((a, b) => b.fit_score - a.fit_score);
+    return {
+      data: {
+        rep_id: rep.id,
+        rep_name: rep.name,
+        top_store_type: topEntry[0],
+        top_store_type_pct: Math.round(topEntry[1] * 100),
+        avg_visit_time_minutes: rep.avg_visit_time_minutes,
+        area_speed_factor: rep.area_speed_factor,
+        stores,
+      },
+      error: null,
+      status: 200,
+    };
+  }
+
   if (path === "/routes/manager/war-room") {
     const board = buildDispatchBoard();
     const jitter = (demoTick % 5) * 2;

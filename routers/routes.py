@@ -17,6 +17,7 @@ from schemas import (
     AssignStoresRequest,
     AssignStoresResponse,
     DispatchBoardResponse,
+    RepStoreFitResponse,
     RedistributeRequest,
     RedistributeResponse,
     RouteGenerateRequest,
@@ -27,6 +28,7 @@ from schemas import (
     NudgeRequest,
     NudgeResponse,
 )
+from rep_store_fit import compute_rep_store_fit
 
 router = APIRouter()
 DEFAULT_START_LAT = 18.5592
@@ -639,6 +641,27 @@ def manager_dispatch_board(
         "unassigned_stores": unassigned_stores,
         "reps": rep_routes,
     }
+
+
+@router.get("/manager/rep-store-fit/{rep_id}", response_model=RepStoreFitResponse)
+def manager_rep_store_fit(
+    rep_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_role("manager")),
+):
+    rep = db.query(Rep).filter(Rep.id == rep_id, Rep.is_active == True).first()
+    if rep is None:
+        raise HTTPException(status_code=404, detail="Rep not found")
+
+    stores = db.query(Store).filter(Store.is_active == True).all()
+    visit_logs = (
+        db.query(VisitLog)
+        .filter(VisitLog.rep_id == rep_id)
+        .order_by(VisitLog.visited_at.desc())
+        .all()
+    )
+    rep_dna = parse_rep_dna(rep)
+    return compute_rep_store_fit(rep, rep_dna, stores, visit_logs)
 
 
 @router.post("/manager/reset-today")
