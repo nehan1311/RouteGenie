@@ -69,12 +69,14 @@ export default function RedistributeScreen() {
   const [routeRefreshKey, setRouteRefreshKey] = useState(0);
   const [showRebalance, setShowRebalance] = useState(false);
   const [showRoutePreview, setShowRoutePreview] = useState(false);
+  const [showAssigned, setShowAssigned] = useState(false);
   const [error, setError] = useState("");
 
   const reps = board?.reps || [];
-  const unassignedStores = board?.unassigned_stores || [];
   const selectedRep = reps.find((r) => r.rep_id === selectedRepId);
   const availableStores = useMemo(() => catalog.filter((s) => !s.assigned_to), [catalog]);
+  const assignedStores = useMemo(() => catalog.filter((s) => s.assigned_to), [catalog]);
+  const selectedRepStops = selectedRep?.stores || [];
 
   function promptLogout() {
     if (Platform.OS === "web") {
@@ -218,6 +220,56 @@ export default function RedistributeScreen() {
     loadBoard();
   }
 
+  function renderStoreRow(store, { dispatchable = true } = {}) {
+    const isAvailable = !store.assigned_to;
+    const checked = selectedStoreIds.has(store.store_id);
+    const busy = assigningStoreId === store.store_id;
+    const onSelectedRep =
+      store.assigned_to && store.assigned_to === selectedRep?.rep_name;
+
+    return (
+      <View
+        key={store.store_id}
+        style={[
+          styles.storeChip,
+          !isAvailable && styles.storeChipAssigned,
+          onSelectedRep && styles.storeChipOnSelectedRep,
+        ]}
+      >
+        {dispatchable && isAvailable ? (
+          <Pressable onPress={() => toggleStoreSelection(store.store_id)} style={styles.checkBox}>
+            <Ionicons
+              name={checked ? "checkbox" : "square-outline"}
+              size={20}
+              color={checked ? colors.primary : colors.textMuted}
+            />
+          </Pressable>
+        ) : (
+          <View style={styles.checkBoxSpacer} />
+        )}
+        <View style={[styles.dot, { backgroundColor: urgencyDot(store.base_priority || 2) }]} />
+        <View style={styles.chipCopy}>
+          <Text style={styles.chipName} numberOfLines={1}>
+            {store.store_name}
+          </Text>
+          <Text style={styles.chipVal} numberOfLines={1}>
+            Rs.{Math.round(store.estimated_revenue || 0).toLocaleString()} ·{" "}
+            {isAvailable ? "Available" : onSelectedRep ? `On ${selectedRep?.rep_name?.split(" ")[0]}'s route` : `On ${store.assigned_to}'s route`}
+          </Text>
+        </View>
+        {dispatchable && isAvailable ? (
+          <Pressable
+            onPress={() => instantAssign(store)}
+            disabled={busy || submitting}
+            style={[styles.dispatchBtn, busy && styles.dispatchBtnBusy]}
+          >
+            <Text style={styles.dispatchBtnText}>{busy ? "…" : "Dispatch"}</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    );
+  }
+
   if (loading) return <SkeletonScreen />;
 
   const assignedTotal = reps.reduce((sum, r) => sum + (r.stores_total || 0), 0);
@@ -288,102 +340,138 @@ export default function RedistributeScreen() {
           ) : null}
         </View>
         <Text style={styles.sectionHint}>
-          Dispatch stores below. Rep sees the exact same stops on their route screen.
+          Only unassigned stores appear here. Once dispatched to a rep, a store is removed from other reps&apos; queues.
         </Text>
 
+        {selectedRepStops.length > 0 ? (
+          <View style={styles.repRouteSummary}>
+            <Ionicons name="navigate" size={16} color={colors.primary} />
+            <Text style={styles.repRouteSummaryText}>
+              {selectedRep?.rep_name?.split(" ")[0]} already has {selectedRepStops.length} stop{selectedRepStops.length > 1 ? "s" : ""} on their route
+            </Text>
+          </View>
+        ) : null}
+
         <View style={styles.queueContainer}>
-          {catalog.length === 0 ? (
-            <Text style={styles.emptyCol}>No stores loaded</Text>
+          {availableStores.length === 0 ? (
+            <Text style={styles.emptyCol}>
+              {assignedStores.length > 0
+                ? "All stores are dispatched. Use Reset queue or Move stops below."
+                : "No stores loaded"}
+            </Text>
           ) : (
-            catalog.map((store) => {
-              const isAvailable = !store.assigned_to;
-              const checked = selectedStoreIds.has(store.store_id);
-              const busy = assigningStoreId === store.store_id;
-              return (
-                <View key={store.store_id} style={[styles.storeChip, !isAvailable && styles.storeChipAssigned]}>
-                  {isAvailable ? (
-                    <Pressable onPress={() => toggleStoreSelection(store.store_id)} style={styles.checkBox}>
-                      <Ionicons
-                        name={checked ? "checkbox" : "square-outline"}
-                        size={20}
-                        color={checked ? colors.primary : colors.textMuted}
-                      />
-                    </Pressable>
-                  ) : (
-                    <View style={{ width: 24 }} />
-                  )}
-                  <View style={[styles.dot, { backgroundColor: urgencyDot(store.base_priority || 2) }]} />
-                  <View style={styles.chipCopy}>
-                    <Text style={styles.chipName}>{store.store_name}</Text>
-                    <Text style={styles.chipVal}>
-                      Rs.{Math.round(store.estimated_revenue || 0).toLocaleString()} ·{" "}
-                      {isAvailable ? "Available" : `On ${store.assigned_to}'s route`}
-                    </Text>
-                  </View>
-                  {isAvailable ? (
-                    <Pressable
-                      onPress={() => instantAssign(store)}
-                      disabled={busy || submitting}
-                      style={[styles.dispatchBtn, busy && styles.dispatchBtnBusy]}
-                    >
-                      <Text style={styles.dispatchBtnText}>{busy ? "…" : "Dispatch"}</Text>
-                    </Pressable>
-                  ) : null}
-                </View>
-              );
-            })
+            <ScrollView
+              style={styles.queueScroll}
+              contentContainerStyle={styles.queueScrollContent}
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+            >
+              {availableStores.map((store) => renderStoreRow(store))}
+            </ScrollView>
           )}
         </View>
 
-        <Pressable onPress={() => setShowRoutePreview((v) => !v)} style={styles.rebalanceToggle}>
-          <Ionicons name={showRoutePreview ? "chevron-up" : "chevron-down"} size={18} color={colors.primary} />
-          <Text style={styles.rebalanceToggleText}>
-            {selectedRep?.rep_name || "Rep"}&apos;s live route preview
-          </Text>
-        </Pressable>
-        {showRoutePreview && selectedRepId ? (
-          <RepRoutePreviewPanel
-            repId={selectedRepId}
-            repName={selectedRep?.rep_name}
-            refreshKey={routeRefreshKey}
-            compact
-          />
-        ) : null}
-
-        <Pressable onPress={() => setShowRebalance((v) => !v)} style={styles.rebalanceToggle}>
-          <Ionicons name={showRebalance ? "chevron-up" : "chevron-down"} size={18} color={colors.primary} />
-          <Text style={styles.rebalanceToggleText}>Move stops between reps</Text>
-        </Pressable>
-
-        {showRebalance ? (
-          <View style={styles.rebalanceBoard}>
-            <View style={styles.column}>
-              <Text style={styles.colTitle}>Move from</Text>
-              <RepPicker reps={reps} value={fromRepId} onChange={setFromRepId} />
-              {fromStores.map((s) => (
-                <Pressable key={s.store_id} onPress={() => queueTransfer(s)} style={styles.miniChip}>
-                  <Text style={styles.miniChipText}>{s.store_name}</Text>
-                  <Ionicons name="arrow-forward" size={14} color={colors.primary} />
-                </Pressable>
-              ))}
-            </View>
-            <View style={styles.column}>
-              <Text style={styles.colTitle}>Move to</Text>
-              <RepPicker reps={reps} value={toRepId} onChange={setToRepId} />
-              {pendingTransfer.map((s) => (
-                <View key={s.store_id} style={styles.miniChipPending}>
-                  <Text style={styles.miniChipText}>{s.store_name}</Text>
-                  <Pressable onPress={() => setPendingTransfer((p) => p.filter((x) => x.store_id !== s.store_id))}>
-                    <Ionicons name="close-circle" size={16} color={colors.danger} />
-                  </Pressable>
-                </View>
-              ))}
-            </View>
-            {pendingTransfer.length ? (
-              <AppButton title={`Confirm move (${pendingTransfer.length})`} onPress={confirmTransfer} loading={submitting} />
+        {assignedStores.length > 0 ? (
+          <>
+            <Pressable onPress={() => setShowAssigned((v) => !v)} style={styles.rebalanceToggle}>
+              <Ionicons name={showAssigned ? "chevron-up" : "chevron-down"} size={18} color={colors.textMuted} />
+              <Text style={styles.assignedToggleText}>
+                Dispatched stores ({assignedStores.length}) — not available to other reps
+              </Text>
+            </Pressable>
+            {showAssigned ? (
+              <View style={styles.assignedContainer}>
+                {assignedStores.map((store) => renderStoreRow(store, { dispatchable: false }))}
+              </View>
             ) : null}
-          </View>
+          </>
         ) : null}
+
+        <View style={styles.advancedSection}>
+          <Text style={styles.advancedTitle}>3 · Route tools</Text>
+
+          <Pressable onPress={() => setShowRoutePreview((v) => !v)} style={styles.rebalanceToggle}>
+            <Ionicons name={showRoutePreview ? "chevron-up" : "chevron-down"} size={18} color={colors.primary} />
+            <Text style={styles.rebalanceToggleText}>
+              {selectedRep?.rep_name?.split(" ")[0] || "Rep"}&apos;s live route preview
+              {selectedRepStops.length ? ` (${selectedRepStops.length} stops)` : ""}
+            </Text>
+          </Pressable>
+          {showRoutePreview && selectedRepId ? (
+            <RepRoutePreviewPanel
+              repId={selectedRepId}
+              repName={selectedRep?.rep_name}
+              refreshKey={routeRefreshKey}
+              compact
+            />
+          ) : null}
+
+          <Pressable onPress={() => setShowRebalance((v) => !v)} style={styles.rebalanceToggle}>
+            <Ionicons name={showRebalance ? "chevron-up" : "chevron-down"} size={18} color={colors.primary} />
+            <Text style={styles.rebalanceToggleText}>Move stops between reps</Text>
+          </Pressable>
+
+          {showRebalance ? (
+            <View style={styles.rebalanceBoard}>
+              <View style={styles.rebalancePanel}>
+                <Text style={styles.colTitle}>Move from</Text>
+                <RepPicker reps={reps} value={fromRepId} onChange={setFromRepId} />
+                <ScrollView
+                  style={styles.transferScroll}
+                  contentContainerStyle={styles.transferScrollContent}
+                  nestedScrollEnabled
+                  showsVerticalScrollIndicator
+                >
+                  {fromStores.length === 0 ? (
+                    <Text style={styles.emptyTransfer}>No stops on this rep&apos;s route</Text>
+                  ) : (
+                    fromStores.map((s) => (
+                      <Pressable key={s.store_id} onPress={() => queueTransfer(s)} style={styles.miniChip}>
+                        <Text style={styles.miniChipText} numberOfLines={2}>
+                          {s.store_name}
+                        </Text>
+                        <Ionicons name="arrow-forward" size={14} color={colors.primary} />
+                      </Pressable>
+                    ))
+                  )}
+                </ScrollView>
+              </View>
+
+              <View style={styles.rebalancePanel}>
+                <Text style={styles.colTitle}>Move to</Text>
+                <RepPicker reps={reps} value={toRepId} onChange={setToRepId} />
+                <View style={styles.pendingList}>
+                  {pendingTransfer.length === 0 ? (
+                    <Text style={styles.emptyTransfer}>Tap stores above to queue a transfer</Text>
+                  ) : (
+                    pendingTransfer.map((s) => (
+                      <View key={s.store_id} style={styles.miniChipPending}>
+                        <Text style={styles.miniChipText} numberOfLines={2}>
+                          {s.store_name}
+                        </Text>
+                        <Pressable
+                          onPress={() =>
+                            setPendingTransfer((p) => p.filter((x) => x.store_id !== s.store_id))
+                          }
+                        >
+                          <Ionicons name="close-circle" size={16} color={colors.danger} />
+                        </Pressable>
+                      </View>
+                    ))
+                  )}
+                </View>
+              </View>
+
+              {pendingTransfer.length ? (
+                <AppButton
+                  title={`Confirm move (${pendingTransfer.length})`}
+                  onPress={confirmTransfer}
+                  loading={submitting}
+                />
+              ) : null}
+            </View>
+          ) : null}
+        </View>
       </ScrollView>
 
       {batchCount > 0 ? (
@@ -471,13 +559,58 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
   },
   resetBtnText: { color: colors.danger, fontFamily: fonts.bold, fontSize: 11 },
+  repRouteSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "rgba(61, 111, 255, 0.1)",
+    borderRadius: radius.button,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: "rgba(61, 111, 255, 0.25)",
+  },
+  repRouteSummaryText: { color: colors.text, fontFamily: fonts.medium, fontSize: 12, flex: 1 },
   queueContainer: {
     backgroundColor: colors.surface,
     borderRadius: radius.card,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: "hidden",
+    marginBottom: spacing.md,
+  },
+  queueScroll: {
+    maxHeight: 360,
+    ...(Platform.OS === "web" ? { overflow: "auto" } : {}),
+  },
+  queueScrollContent: {
     padding: spacing.md,
-    maxHeight: 420,
+  },
+  assignedContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.lg,
+    gap: spacing.sm,
+  },
+  assignedToggleText: { color: colors.textMuted, fontFamily: fonts.medium, fontSize: 13, flex: 1 },
+  advancedSection: {
+    marginTop: spacing.lg,
+    paddingTop: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    gap: spacing.xs,
+  },
+  advancedTitle: {
+    color: colors.textMuted,
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
   },
   emptyCol: { color: colors.textMuted, fontFamily: fonts.body, fontSize: 13, textAlign: "center", padding: spacing.xl },
   storeChip: {
@@ -491,8 +624,10 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     gap: spacing.sm,
   },
-  storeChipAssigned: { opacity: 0.55 },
-  checkBox: { padding: 2 },
+  storeChipAssigned: { opacity: 0.65 },
+  storeChipOnSelectedRep: { borderColor: colors.primary, opacity: 1 },
+  checkBox: { padding: 2, width: 24 },
+  checkBoxSpacer: { width: 24 },
   dot: { width: 10, height: 10, borderRadius: 5 },
   chipCopy: { flex: 1 },
   chipName: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
@@ -508,11 +643,57 @@ const styles = StyleSheet.create({
   },
   dispatchBtnBusy: { opacity: 0.6 },
   dispatchBtnText: { color: "#fff", fontFamily: fonts.bold, fontSize: 12 },
-  rebalanceToggle: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: spacing.lg, marginBottom: spacing.sm },
-  rebalanceToggleText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 13 },
-  rebalanceBoard: { gap: spacing.md, marginBottom: spacing.lg },
-  column: { flex: 1 },
-  colTitle: { color: colors.textMuted, fontFamily: fonts.bold, fontSize: 12, marginBottom: spacing.sm, textTransform: "uppercase" },
+  rebalanceToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: spacing.sm,
+    marginBottom: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  rebalanceToggleText: { color: colors.primary, fontFamily: fonts.bold, fontSize: 13, flex: 1 },
+  rebalanceBoard: {
+    gap: spacing.lg,
+    marginBottom: spacing.lg,
+    width: "100%",
+  },
+  rebalancePanel: {
+    width: "100%",
+    backgroundColor: colors.surfaceElevated,
+    borderRadius: radius.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    overflow: "hidden",
+  },
+  colTitle: {
+    color: colors.textMuted,
+    fontFamily: fonts.bold,
+    fontSize: 12,
+    marginBottom: spacing.sm,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  transferScroll: {
+    maxHeight: 220,
+    ...(Platform.OS === "web" ? { overflow: "auto" } : {}),
+  },
+  transferScrollContent: {
+    gap: spacing.xs,
+    paddingTop: spacing.xs,
+  },
+  pendingList: {
+    gap: spacing.xs,
+    paddingTop: spacing.xs,
+    minHeight: 48,
+  },
+  emptyTransfer: {
+    color: colors.textMuted,
+    fontFamily: fonts.body,
+    fontSize: 12,
+    paddingVertical: spacing.sm,
+    textAlign: "center",
+  },
   miniChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -523,19 +704,21 @@ const styles = StyleSheet.create({
     marginBottom: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
+    gap: spacing.sm,
   },
   miniChipPending: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    backgroundColor: "rgba(99, 91, 223, 0.1)",
+    backgroundColor: "rgba(61, 111, 255, 0.1)",
     borderRadius: radius.button,
     padding: spacing.sm,
     marginBottom: spacing.xs,
     borderWidth: 1,
     borderColor: colors.primary,
+    gap: spacing.sm,
   },
-  miniChipText: { color: colors.text, fontFamily: fonts.medium, fontSize: 12, flex: 1 },
+  miniChipText: { color: colors.text, fontFamily: fonts.medium, fontSize: 12, flex: 1, flexShrink: 1 },
   fabBar: {
     position: "absolute",
     bottom: 0,
