@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import * as Location from "expo-location";
@@ -20,27 +21,30 @@ import { api } from "../api/client";
 import { useAuth } from "../auth/AuthContext";
 import { useDemo } from "../context/DemoContext";
 import { DemoBadge, HelpFab } from "../components/DemoHelp";
-import { MetricPill } from "../components/MetricPill";
-import {
-  AppButton,
-  AvatarCircle,
-  EmptyState,
-  StatusBadge,
-  toneForStatus,
-} from "../components/UI";
 import { SkeletonScreen } from "../components/Skeleton";
-import { theme } from "../theme/colors";
 import { fonts } from "../theme/fonts";
-import { USE_NATIVE_DRIVER } from "../utils/animation";
+import { EmptyState } from "../components/UI";
 
-const { colors, spacing, radius } = theme;
+const dashTheme = {
+  bg: "#0F172A",
+  card: "#1E293B",
+  primary: "#2563EB",
+  success: "#22C55E",
+  warning: "#F59E0B",
+  critical: "#EF4444",
+  accent: "#06B6D4",
+  textMain: "#F8FAFC",
+  textMuted: "#94A3B8",
+  border: "#334155",
+};
+
 const DEFAULT_LAT = 19.1136;
 const DEFAULT_LNG = 72.8697;
 
 function urgencyBarColor(status) {
-  if (status === "red") return colors.danger;
-  if (status === "yellow") return colors.warning;
-  return colors.success;
+  if (status === "red") return dashTheme.critical;
+  if (status === "yellow") return dashTheme.warning;
+  return dashTheme.success;
 }
 
 function PulsingBeacon() {
@@ -81,18 +85,10 @@ function PulsingBeacon() {
   );
 }
 
-function SwipeStopCard({
-  stop,
-  index,
-  isCurrent,
-  collapsed,
-  onDone,
-  onCancel,
-  onDirections,
-}) {
+function SwipeStopCard({ stop, index, isCurrent, collapsed, onDone, onCancel, onDirections }) {
   const heightAnim = useRef(new Animated.Value(1)).current;
   const revenue = Number.isFinite(Number(stop.estimated_revenue))
-    ? `Rs. ${Math.round(Number(stop.estimated_revenue)).toLocaleString()}`
+    ? `₹${Math.round(Number(stop.estimated_revenue)).toLocaleString()}`
     : "Pending";
 
   useEffect(() => {
@@ -119,69 +115,85 @@ function SwipeStopCard({
         <View style={[styles.urgencyBar, { backgroundColor: urgencyBarColor(stop.urgency_status) }]} />
         <View style={styles.stopContent}>
           <Text style={styles.stopName}>{stop.store_name || stop.name}</Text>
-          <StatusBadge status={stop.status} />
+          <Text style={styles.statusText}>{stop.status.toUpperCase()}</Text>
         </View>
       </View>
     );
   }
 
-  const cardInner = (
-    <Pressable
-      onLongPress={() =>
-        Alert.alert(stop.store_name || stop.name, "Choose an action", [
-          { text: "Mark done", onPress: () => onDone(stop) },
-          { text: "Cancel stop", style: "destructive", onPress: () => onCancel(stop) },
-          { text: "Get directions", onPress: () => onDirections(stop) },
-          { text: "Dismiss", style: "cancel" },
-        ])
-      }
-      style={[styles.stopCard, isCurrent && styles.stopCurrent]}
-    >
-      <View style={[styles.urgencyBar, { backgroundColor: isCurrent ? colors.primary : urgencyBarColor(stop.urgency_status) }]} />
-      <View style={styles.stopContent}>
-        <Text style={styles.stopName}>{stop.store_name || stop.name}</Text>
-        <Text style={styles.stopMeta}>
-          {stop.planned_arrival || "TBD"} · {revenue}
-        </Text>
-      </View>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginRight: 8 }}>
-        <StatusBadge status={stop.urgency_status} />
-        <Pressable onPress={() => onDone(stop)} style={{ padding: 6, backgroundColor: "rgba(16, 185, 129, 0.15)", borderRadius: 6 }}>
-          <Ionicons name="checkmark" size={18} color="#10B981" />
-        </Pressable>
-        <Pressable onPress={() => onCancel(stop)} style={{ padding: 6, backgroundColor: "rgba(239, 68, 68, 0.15)", borderRadius: 6 }}>
-          <Ionicons name="close" size={18} color="#EF4444" />
-        </Pressable>
-      </View>
-    </Pressable>
-  );
-
   return (
-    <Animated.View style={{ maxHeight: heightAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 200] }), opacity: heightAnim, marginBottom: collapsed ? 0 : spacing.sm, overflow: "hidden" }}>
-      {Platform.OS === "web" ? (
-        cardInner
-      ) : (
-        <Swipeable
-          renderRightActions={renderRight}
-          renderLeftActions={renderLeft}
-          onSwipeableOpen={(direction) => {
-            if (direction === "right") {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              onDone(stop);
-            } else {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-              onCancel(stop);
-            }
-          }}
+    <Animated.View style={{ maxHeight: heightAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 200] }), opacity: heightAnim, marginBottom: collapsed ? 0 : 8, overflow: "hidden" }}>
+      <Swipeable
+        renderRightActions={renderRight}
+        renderLeftActions={renderLeft}
+        onSwipeableOpen={(direction) => {
+          if (direction === "right") {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+            onDone(stop);
+          } else {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+            onCancel(stop);
+          }
+        }}
+      >
+        <Pressable
+          onLongPress={() =>
+            Alert.alert(stop.store_name || stop.name, "Choose an action", [
+              { text: "Mark done", onPress: () => onDone(stop) },
+              { text: "Cancel stop", style: "destructive", onPress: () => onCancel(stop) },
+              { text: "Get directions", onPress: () => onDirections(stop) },
+              { text: "Dismiss", style: "cancel" },
+            ])
+          }
+          style={[styles.stopCard, isCurrent && styles.stopCurrent]}
         >
-          {cardInner}
-        </Swipeable>
-      )}
+          <View style={[styles.urgencyBar, { backgroundColor: isCurrent ? dashTheme.primary : urgencyBarColor(stop.urgency_status) }]} />
+          <View style={styles.stopContent}>
+            <Text style={styles.stopName}>{stop.store_name || stop.name}</Text>
+            <Text style={styles.stopMeta}>
+              {stop.planned_arrival || "TBD"} · {revenue}
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginRight: 8 }}>
+            <Pressable onPress={() => onDone(stop)} style={styles.actionBtnSuccess}>
+              <Ionicons name="checkmark" size={18} color={dashTheme.success} />
+            </Pressable>
+            <Pressable onPress={() => onCancel(stop)} style={styles.actionBtnDanger}>
+              <Ionicons name="close" size={18} color={dashTheme.critical} />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Swipeable>
     </Animated.View>
   );
 }
 
+function formatTime(minutes) {
+  if (!minutes) return "0m";
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function KPICard({ icon, value, label, color }) {
+  return (
+    <View style={styles.kpiCard}>
+      <View style={[styles.kpiIconWrap, { backgroundColor: color + "1A" }]}>
+         <Ionicons name={icon} size={24} color={color} />
+      </View>
+      <View style={styles.kpiTextWrap}>
+        <Text style={styles.kpiValue}>{value}</Text>
+        <Text style={styles.kpiLabel}>{label}</Text>
+      </View>
+    </View>
+  );
+}
+
 export default function RepRouteScreen() {
+  const { width } = useWindowDimensions();
+  const isDesktop = width >= 1024;
+
   const { repId, name, logout } = useAuth();
   const { demoMode } = useDemo();
   const [route, setRoute] = useState(null);
@@ -222,8 +234,12 @@ export default function RepRouteScreen() {
   const stops = route?.stores || [];
   const activeStops = stops.filter((s) => s.status !== "done" && s.status !== "cancelled");
   const currentStopIndex = stops.findIndex((s) => s.status === "pending");
+  const nextStop = activeStops[0];
   const remainingCount = activeStops.length;
+  const completedCount = stops.length - remainingCount;
   const totalRevenue = stops.reduce((sum, s) => sum + Number(s.estimated_revenue || 0), 0);
+  const totalDriveTime = stops.reduce((sum, s) => sum + (s.travel_time_minutes || 0), 0);
+  const progressPct = stops.length > 0 ? Math.round((completedCount / stops.length) * 100) : 0;
   const hasCancellation = stops.some((s) => s.status === "cancelled");
 
   const coordinates = useMemo(() => {
@@ -353,14 +369,29 @@ export default function RepRouteScreen() {
 
   return (
     <View style={styles.container}>
+      {/* HEADER */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Today&apos;s Route</Text>
-          <DemoBadge />
+          <View style={styles.targetIconWrap}>
+             <Ionicons name="locate" size={24} color={dashTheme.critical} />
+          </View>
+          <View>
+             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Text style={styles.headerTitle}>Today&apos;s Route</Text>
+                <DemoBadge />
+             </View>
+             <Text style={styles.headerSubtitle}>Hi {name || "Rep"} 👋 · Plan smart. Visit more. Sell more.</Text>
+          </View>
         </View>
-        <Pressable onPress={promptLogout} style={{ padding: 8 }}>
-          <Ionicons name="log-out-outline" size={24} color={colors.danger} />
-        </Pressable>
+        <View style={styles.headerRight}>
+           <View style={styles.bellWrap}>
+             <Ionicons name="notifications-outline" size={24} color={dashTheme.textMain} />
+             <View style={styles.bellDot}><Text style={styles.bellDotText}>3</Text></View>
+           </View>
+           <Pressable onPress={promptLogout} style={styles.logoutBtn}>
+             <Ionicons name="log-out-outline" size={24} color={dashTheme.critical} />
+           </Pressable>
+        </View>
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
@@ -370,75 +401,156 @@ export default function RepRouteScreen() {
           </Pressable>
         ) : null}
 
-        {!route ? (
-          <View style={styles.waitingBox}>
-            <Ionicons name="time-outline" size={28} color={colors.primary} />
-            <Text style={styles.waitingTitle}>Waiting for dispatch</Text>
-            <Text style={styles.assignHintText}>
-              Your manager assigns stops from Dispatch Center. This screen shows the exact same route — refresh after dispatch.
-            </Text>
-            <AppButton title="Refresh route" icon="refresh-outline" onPress={loadRoute} loading={loading} />
-          </View>
-        ) : null}
+        {/* HERO CTA - Always visible as the primary action banner */}
+        <Animated.View style={{ opacity: btnPulse }}>
+          <Pressable 
+            style={[styles.heroBanner, generating && { opacity: 0.7 }]} 
+            onPress={generateRoute} 
+            disabled={generating || locationLoading}
+          >
+            <View style={styles.heroContent}>
+              <Ionicons name="navigate-circle" size={28} color="#FFF" />
+              <Text style={styles.heroText}>{generating ? "Building Route..." : "Build today's route"}</Text>
+            </View>
+          </Pressable>
+        </Animated.View>
 
         {route ? (
           <Animated.View style={{ opacity: routeFade }}>
-            <View style={styles.dispatchedBanner}>
-              <Ionicons name="shield-checkmark" size={16} color={colors.success} />
-              <Text style={styles.dispatchedText}>
-                Manager dispatched route · {stops.length} stops (same as Dispatch Center)
-              </Text>
-              <Pressable onPress={loadRoute} style={{ padding: 4 }}>
-                <Ionicons name="refresh-outline" size={16} color={colors.primary} />
-              </Pressable>
-            </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.metricRow}>
-              <MetricPill icon="flag-outline" label="Total stops" value={stops.length} />
-              <MetricPill icon="cash-outline" label="Est. revenue" value={`Rs.${Math.round(totalRevenue / 1000)}k`} />
-              <MetricPill icon="time-outline" label="Drive time" value={`${route.total_drive_minutes || 95}m`} />
-            </ScrollView>
-
-            <View style={styles.mapWrap}>
-              <MapView style={styles.map} initialRegion={initialRegion}>
-                <Marker coordinate={location || { latitude: DEFAULT_LAT, longitude: DEFAULT_LNG }} pinColor={colors.primary} title="Start" />
-                {stops.map((stop, idx) => (
-                  <Marker
-                    key={stop.store_id}
-                    coordinate={{ latitude: stop.lat, longitude: stop.lng }}
-                    pinColor={urgencyBarColor(stop.urgency_status)}
-                    title={stop.store_name}
-                  />
-                ))}
-                {coordinates.length > 1 ? (
-                  <Polyline coordinates={coordinates} strokeColor={colors.primary} strokeWidth={4} />
-                ) : null}
-              </MapView>
-              {currentStopIndex >= 0 ? (
-                <View style={styles.beaconOverlay}>
-                  <PulsingBeacon />
+            <View style={[styles.dashboardGrid, isDesktop && styles.dashboardGridDesktop]}>
+              
+              {/* LEFT COLUMN */}
+              <View style={[styles.leftColumn, isDesktop && { flex: 1.5 }]}>
+                {/* MAP */}
+                <View style={styles.mapContainer}>
+                  <View style={styles.mapBadge}>
+                     <Text style={styles.mapBadgeText}>{stops.length} Stops</Text>
+                  </View>
+                  <View style={styles.mapLegend}>
+                     <Text style={styles.legendTitle}>Urgency</Text>
+                     <View style={styles.legendRow}><View style={[styles.legendDot, {backgroundColor: dashTheme.critical}]} /><Text style={styles.legendText}>High</Text></View>
+                     <View style={styles.legendRow}><View style={[styles.legendDot, {backgroundColor: dashTheme.warning}]} /><Text style={styles.legendText}>Medium</Text></View>
+                     <View style={styles.legendRow}><View style={[styles.legendDot, {backgroundColor: dashTheme.success}]} /><Text style={styles.legendText}>Low</Text></View>
+                  </View>
+                  <MapView style={styles.map} initialRegion={initialRegion}>
+                    <Marker coordinate={location || { latitude: DEFAULT_LAT, longitude: DEFAULT_LNG }} pinColor={dashTheme.primary} title="Start" />
+                    {stops.map((stop, idx) => (
+                      <Marker
+                        key={stop.store_id}
+                        coordinate={{ latitude: stop.lat, longitude: stop.lng }}
+                        pinColor={urgencyBarColor(stop.urgency_status)}
+                        title={stop.store_name}
+                      />
+                    ))}
+                    {coordinates.length > 1 ? (
+                      <Polyline coordinates={coordinates} strokeColor={dashTheme.primary} strokeWidth={4} />
+                    ) : null}
+                  </MapView>
+                  {currentStopIndex >= 0 ? (
+                    <View style={styles.beaconOverlay}>
+                      <PulsingBeacon />
+                    </View>
+                  ) : null}
                 </View>
-              ) : null}
-              {googleMapsUrl ? (
-                <Pressable style={styles.mapsChip} onPress={() => Linking.openURL(googleMapsUrl)}>
-                  <Text style={styles.mapsChipText}>Open in Google Maps</Text>
-                  <Ionicons name="arrow-forward" size={14} color={colors.text} />
-                </Pressable>
-              ) : null}
+                
+                {/* SECONDARY METRICS (Under Map) */}
+                <View style={styles.secondaryMetrics}>
+                   <View style={styles.secMetric}>
+                      <Ionicons name="storefront-outline" size={20} color={dashTheme.accent} />
+                      <View style={{ marginLeft: 8 }}>
+                         <Text style={styles.secLabel}>Target Visits</Text>
+                         <Text style={styles.secValue}>{stops.length}</Text>
+                      </View>
+                   </View>
+                   <View style={styles.secMetric}>
+                      <Ionicons name="checkmark-circle-outline" size={20} color={dashTheme.success} />
+                      <View style={{ marginLeft: 8 }}>
+                         <Text style={styles.secLabel}>Completed</Text>
+                         <Text style={styles.secValue}>{completedCount}</Text>
+                      </View>
+                   </View>
+                   <View style={styles.secMetric}>
+                      <Ionicons name="cash-outline" size={20} color={"#8B5CF6"} />
+                      <View style={{ marginLeft: 8 }}>
+                         <Text style={styles.secLabel}>Revenue</Text>
+                         <Text style={styles.secValue}>₹{totalRevenue.toLocaleString()}</Text>
+                      </View>
+                   </View>
+                </View>
+              </View>
+
+              {/* RIGHT COLUMN */}
+              <View style={[styles.rightColumn, isDesktop && { flex: 1 }]}>
+                {/* KPI GRID */}
+                <View style={styles.kpiGrid}>
+                  <KPICard icon="storefront" value={stops.length} label="Total Stops" color={dashTheme.primary} />
+                  <KPICard icon="checkmark-circle" value={completedCount} label="Completed" color={dashTheme.success} />
+                  <KPICard icon="time" value={formatTime(totalDriveTime)} label="Est. Time" color={dashTheme.warning} />
+                  <KPICard icon="cash" value={`₹${totalRevenue.toLocaleString()}`} label="Est. Revenue" color="#8B5CF6" />
+                </View>
+
+                {/* NEXT STOP */}
+                {nextStop ? (
+                  <View style={styles.card}>
+                    <Text style={styles.cardHeader}>Next Stop</Text>
+                    <View style={styles.nextStopContent}>
+                       <View style={styles.nextStopTitleRow}>
+                          <View style={styles.nextStopBadge}><Text style={styles.nextStopBadgeText}>{nextStop.order}</Text></View>
+                          <Text style={styles.nextStopName}>{nextStop.store_name || nextStop.name}</Text>
+                       </View>
+                       <View style={{ flexDirection: 'row', gap: 8, marginTop: 12, marginBottom: 12 }}>
+                          <View style={[styles.priorityBadge, { backgroundColor: urgencyBarColor(nextStop.urgency_status) + '20' }]}>
+                             <Ionicons name="flame" size={14} color={urgencyBarColor(nextStop.urgency_status)} />
+                             <Text style={[styles.priorityText, { color: urgencyBarColor(nextStop.urgency_status) }]}>
+                                {nextStop.urgency_status.toUpperCase()} PRIORITY
+                             </Text>
+                          </View>
+                       </View>
+                       <View style={styles.nextStopDetails}>
+                          <Text style={styles.detailText}><Ionicons name="location-outline" size={14}/> ETA: {nextStop.planned_arrival}</Text>
+                          <Text style={styles.detailText}><Ionicons name="cash-outline" size={14}/> Est: ₹{nextStop.estimated_revenue}</Text>
+                       </View>
+                       <Pressable style={styles.navButton} onPress={() => openDirections(nextStop)}>
+                          <Ionicons name="navigate" size={18} color="#FFF" />
+                          <Text style={styles.navButtonText}>Start Navigation</Text>
+                       </Pressable>
+                    </View>
+                  </View>
+                ) : null}
+
+                {/* TODAY'S PROGRESS */}
+                <View style={[styles.card, { flexDirection: 'row', alignItems: 'center' }]}>
+                  <View style={{ flex: 1, paddingRight: 16 }}>
+                     <Text style={styles.cardHeader}>Today's Progress</Text>
+                     <Text style={styles.progressSubtitle}>{completedCount} / {stops.length} stops completed</Text>
+                     <View style={styles.progressBarWrap}>
+                        <View style={[styles.progressBarFill, { width: `${progressPct}%` }]} />
+                     </View>
+                  </View>
+                  <View style={styles.progressRadial}>
+                     <Text style={styles.progressRadialText}>{progressPct}%</Text>
+                  </View>
+                </View>
+              </View>
+
             </View>
 
-            <Text style={styles.sectionLabel}>STOPS · {remainingCount} REMAINING</Text>
-            {stops.map((stop, index) => (
-              <SwipeStopCard
-                key={stop.store_id}
-                stop={stop}
-                index={index}
-                isCurrent={index === currentStopIndex}
-                collapsed={collapsedIds.has(stop.store_id)}
-                onDone={markDone}
-                onCancel={cancelAndReplan}
-                onDirections={openDirections}
-              />
-            ))}
+            {/* EXISTING STOP LIST */}
+            <View style={styles.listSection}>
+              <Text style={styles.sectionLabel}>ALL STOPS · {remainingCount} REMAINING</Text>
+              {stops.map((stop, index) => (
+                <SwipeStopCard
+                  key={stop.store_id}
+                  stop={stop}
+                  index={index}
+                  isCurrent={index === currentStopIndex}
+                  collapsed={collapsedIds.has(stop.store_id)}
+                  onDone={markDone}
+                  onCancel={cancelAndReplan}
+                  onDirections={openDirections}
+                />
+              ))}
+            </View>
           </Animated.View>
         ) : null}
 
@@ -447,156 +559,156 @@ export default function RepRouteScreen() {
 
       {hasCancellation ? (
         <Pressable style={styles.fab} onPress={loadRoute}>
-          <Ionicons name="refresh" size={24} color={colors.text} />
+          <Ionicons name="refresh" size={24} color={dashTheme.textMain} />
         </Pressable>
       ) : null}
 
-      <HelpFab
-        title="My Route"
-        description="Shows the exact route your manager dispatched. Tap refresh after dispatch — reps cannot self-generate a different route."
-      />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
+  container: { flex: 1, backgroundColor: dashTheme.bg },
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
-    paddingBottom: spacing.sm,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 16,
+    backgroundColor: dashTheme.bg,
   },
-  headerLeft: { flexDirection: "row", alignItems: "center" },
-  headerTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 18 },
+  headerLeft: { flexDirection: "row", alignItems: "center", gap: 12 },
+  targetIconWrap: {
+    width: 40, height: 40, borderRadius: 20, backgroundColor: dashTheme.critical + '20',
+    alignItems: 'center', justifyContent: 'center'
+  },
+  headerTitle: { color: dashTheme.textMain, fontFamily: fonts.bold, fontSize: 20 },
+  headerSubtitle: { color: dashTheme.textMuted, fontFamily: fonts.medium, fontSize: 13, marginTop: 2 },
+  headerRight: { flexDirection: "row", alignItems: "center", gap: 16 },
+  bellWrap: { position: 'relative' },
+  bellDot: {
+    position: 'absolute', top: -4, right: -4, backgroundColor: dashTheme.critical,
+    width: 16, height: 16, borderRadius: 8, alignItems: 'center', justifyContent: 'center'
+  },
+  bellDotText: { color: '#FFF', fontSize: 10, fontFamily: fonts.bold },
+  logoutBtn: { padding: 4 },
   scroll: { flex: 1 },
-  scrollContent: { padding: spacing.lg, paddingBottom: 120 },
+  scrollContent: { padding: 24, paddingBottom: 120 },
   locationPill: {
-    backgroundColor: colors.yellowSoft,
-    borderColor: colors.yellowBorder,
+    backgroundColor: dashTheme.warning + '20',
+    borderColor: dashTheme.warning + '40',
     borderWidth: 1,
     borderRadius: 999,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    marginBottom: spacing.md,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    marginBottom: 16,
   },
-  locationPillText: { color: colors.warning, fontFamily: fonts.medium, fontSize: 12 },
-  assignHint: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
-    backgroundColor: "rgba(99, 91, 223, 0.12)",
-    borderRadius: radius.button,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  assignHintText: { flex: 1, color: colors.textSecondary, fontFamily: fonts.body, fontSize: 12, lineHeight: 18, textAlign: "center" },
-  waitingBox: {
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.surface,
-    borderRadius: radius.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.xl,
-    marginBottom: spacing.md,
-  },
-  waitingTitle: { color: colors.text, fontFamily: fonts.bold, fontSize: 16 },
-  dispatchedBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: "rgba(16, 185, 129, 0.12)",
-    borderRadius: radius.button,
-    padding: spacing.sm,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: "rgba(16, 185, 129, 0.3)",
-  },
-  dispatchedText: { flex: 1, color: colors.success, fontFamily: fonts.bold, fontSize: 12 },
-  metricRow: { marginBottom: spacing.md },
-  mapWrap: { borderRadius: radius.card, overflow: "hidden", marginBottom: spacing.lg, position: "relative" },
-  map: { height: 240, width: "100%" },
-  beaconOverlay: { position: "absolute", top: "42%", left: "48%" },
-  beaconWrap: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
-  beaconRing: {
-    position: "absolute",
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: colors.primary,
-  },
-  beaconCore: { width: 10, height: 10, borderRadius: 5, backgroundColor: colors.primary },
-  mapsChip: {
-    position: "absolute",
-    bottom: spacing.sm,
-    right: spacing.sm,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: colors.surfaceElevated,
-    borderRadius: 999,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  mapsChipText: { color: colors.text, fontFamily: fonts.medium, fontSize: 12 },
-  sectionLabel: { color: colors.textMuted, fontFamily: fonts.medium, fontSize: 13, letterSpacing: 0.6, marginBottom: spacing.sm },
-  stopCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderRadius: radius.card,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginBottom: spacing.sm,
-  },
-  stopCurrent: { backgroundColor: colors.surfaceElevated, borderColor: colors.primary },
-  stopMuted: { opacity: 0.55 },
-  urgencyBar: { width: 4, alignSelf: "stretch", borderRadius: 2, marginRight: spacing.md },
-  stopContent: { flex: 1 },
-  stopName: { color: colors.text, fontFamily: fonts.bold, fontSize: 15 },
-  stopMeta: { color: colors.textSecondary, fontFamily: fonts.body, fontSize: 12, marginTop: 4 },
-  swipeRight: {
-    backgroundColor: colors.success,
-    justifyContent: "center",
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.card,
-    marginBottom: spacing.sm,
-  },
-  swipeLeft: {
-    backgroundColor: colors.danger,
-    justifyContent: "center",
-    alignItems: "flex-end",
-    paddingHorizontal: spacing.lg,
-    borderRadius: radius.card,
-    marginBottom: spacing.sm,
-  },
-  swipeRightText: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
-  swipeLeftText: { color: colors.text, fontFamily: fonts.bold, fontSize: 14 },
-  fab: {
-    position: "absolute",
-    bottom: 88,
-    alignSelf: "center",
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: colors.primary,
-    shadowOpacity: 0.35,
-    shadowRadius: 12,
+  locationPillText: { color: dashTheme.warning, fontFamily: fonts.medium, fontSize: 12 },
+  heroBanner: {
+    backgroundColor: dashTheme.primary,
+    borderRadius: 16,
+    paddingVertical: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+    shadowColor: dashTheme.primary,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.3,
+    shadowRadius: 16,
     elevation: 8,
   },
+  heroContent: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  heroText: { color: '#FFF', fontFamily: fonts.bold, fontSize: 18 },
+  dashboardGrid: { flexDirection: 'column', gap: 24 },
+  dashboardGridDesktop: { flexDirection: 'row', alignItems: 'flex-start' },
+  leftColumn: { display: 'flex', gap: 24 },
+  rightColumn: { display: 'flex', gap: 24 },
+  mapContainer: {
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: dashTheme.border,
+    backgroundColor: dashTheme.card,
+    position: 'relative',
+    height: 320,
+  },
+  map: { flex: 1, width: '100%' },
+  mapBadge: {
+    position: 'absolute', top: 16, left: 16, zIndex: 10,
+    backgroundColor: dashTheme.primary, paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 8,
+  },
+  mapBadgeText: { color: '#FFF', fontFamily: fonts.bold, fontSize: 12 },
+  mapLegend: {
+    position: 'absolute', left: 16, bottom: 16, zIndex: 10,
+    backgroundColor: dashTheme.card + 'E6', padding: 12, borderRadius: 12,
+    borderWidth: 1, borderColor: dashTheme.border,
+  },
+  legendTitle: { color: dashTheme.textMuted, fontSize: 11, fontFamily: fonts.bold, marginBottom: 8, textTransform: 'uppercase' },
+  legendRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { color: dashTheme.textMain, fontSize: 12, fontFamily: fonts.medium },
+  secondaryMetrics: {
+    flexDirection: 'row', backgroundColor: dashTheme.card, borderRadius: 16,
+    padding: 16, borderWidth: 1, borderColor: dashTheme.border,
+    justifyContent: 'space-between'
+  },
+  secMetric: { flexDirection: 'row', alignItems: 'center' },
+  secLabel: { color: dashTheme.textMuted, fontSize: 12, fontFamily: fonts.medium },
+  secValue: { color: dashTheme.textMain, fontSize: 16, fontFamily: fonts.bold, marginTop: 2 },
+  kpiGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 16 },
+  kpiCard: {
+    width: '47%', backgroundColor: dashTheme.card, borderRadius: 16, padding: 16,
+    borderWidth: 1, borderColor: dashTheme.border, alignItems: 'center'
+  },
+  kpiIconWrap: { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  kpiValue: { color: dashTheme.textMain, fontSize: 20, fontFamily: fonts.bold, marginBottom: 4 },
+  kpiLabel: { color: dashTheme.textMuted, fontSize: 12, fontFamily: fonts.medium },
+  kpiTextWrap: { alignItems: 'center' },
+  card: {
+    backgroundColor: dashTheme.card, borderRadius: 16, padding: 20,
+    borderWidth: 1, borderColor: dashTheme.border,
+  },
+  cardHeader: { color: dashTheme.textMain, fontSize: 14, fontFamily: fonts.bold, marginBottom: 16 },
+  nextStopContent: {},
+  nextStopTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  nextStopBadge: { width: 28, height: 28, borderRadius: 14, borderWidth: 2, borderColor: dashTheme.critical, alignItems: 'center', justifyContent: 'center' },
+  nextStopBadgeText: { color: dashTheme.textMain, fontSize: 14, fontFamily: fonts.bold },
+  nextStopName: { color: dashTheme.textMain, fontSize: 16, fontFamily: fonts.bold, flex: 1 },
+  priorityBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  priorityText: { fontSize: 11, fontFamily: fonts.bold },
+  nextStopDetails: { gap: 6, marginBottom: 20 },
+  detailText: { color: dashTheme.textMuted, fontSize: 13, fontFamily: fonts.medium },
+  navButton: { backgroundColor: dashTheme.primary, borderRadius: 12, paddingVertical: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  navButtonText: { color: '#FFF', fontSize: 15, fontFamily: fonts.bold },
+  progressSubtitle: { color: dashTheme.textMuted, fontSize: 12, fontFamily: fonts.medium, marginBottom: 12 },
+  progressBarWrap: { height: 6, backgroundColor: dashTheme.border, borderRadius: 3, overflow: 'hidden' },
+  progressBarFill: { height: '100%', backgroundColor: dashTheme.success, borderRadius: 3 },
+  progressRadial: { width: 64, height: 64, borderRadius: 32, borderWidth: 4, borderColor: dashTheme.success, alignItems: 'center', justifyContent: 'center' },
+  progressRadialText: { color: dashTheme.textMain, fontSize: 16, fontFamily: fonts.bold },
+  listSection: { marginTop: 32 },
+  sectionLabel: { color: dashTheme.textMuted, fontSize: 13, fontFamily: fonts.bold, letterSpacing: 1, marginBottom: 16 },
+  stopCard: {
+    flexDirection: "row", alignItems: "center", backgroundColor: dashTheme.card,
+    borderRadius: 16, padding: 16, borderWidth: 1, borderColor: dashTheme.border,
+  },
+  stopCurrent: { borderColor: dashTheme.primary, backgroundColor: dashTheme.border },
+  stopMuted: { opacity: 0.5 },
+  urgencyBar: { width: 4, alignSelf: "stretch", borderRadius: 2, marginRight: 16 },
+  stopContent: { flex: 1 },
+  stopName: { color: dashTheme.textMain, fontFamily: fonts.bold, fontSize: 15 },
+  stopMeta: { color: dashTheme.textMuted, fontFamily: fonts.medium, fontSize: 12, marginTop: 4 },
+  statusText: { color: dashTheme.textMuted, fontFamily: fonts.bold, fontSize: 12, marginTop: 4 },
+  actionBtnSuccess: { padding: 8, backgroundColor: dashTheme.success + '20', borderRadius: 8 },
+  actionBtnDanger: { padding: 8, backgroundColor: dashTheme.critical + '20', borderRadius: 8 },
+  swipeRight: { backgroundColor: dashTheme.success, justifyContent: "center", paddingHorizontal: 24, borderRadius: 16, marginBottom: 8 },
+  swipeLeft: { backgroundColor: dashTheme.critical, justifyContent: "center", alignItems: "flex-end", paddingHorizontal: 24, borderRadius: 16, marginBottom: 8 },
+  swipeRightText: { color: '#FFF', fontFamily: fonts.bold, fontSize: 15 },
+  swipeLeftText: { color: '#FFF', fontFamily: fonts.bold, fontSize: 15 },
+  beaconOverlay: { position: "absolute", top: "45%", left: "45%" },
+  beaconWrap: { width: 40, height: 40, alignItems: "center", justifyContent: "center" },
+  beaconRing: { position: "absolute", width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: dashTheme.primary },
+  beaconCore: { width: 10, height: 10, borderRadius: 5, backgroundColor: dashTheme.primary },
+  fab: { position: "absolute", bottom: 88, right: 24, width: 56, height: 56, borderRadius: 28, backgroundColor: dashTheme.primary, alignItems: "center", justifyContent: "center", elevation: 8 }
 });

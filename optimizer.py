@@ -516,7 +516,6 @@ def generate_optimal_route(
 
     speed_mps = (MUMBAI_AVG_SPEED_KMPH * 1000 / 3600) * rep["area_speed_factor"]
     service_seconds = int(rep["avg_visit_time_minutes"] * 60)
-
     def time_callback(from_index: int, to_index: int) -> int:
         from_node = manager.IndexToNode(from_index)
         to_node = manager.IndexToNode(to_index)
@@ -537,7 +536,8 @@ def generate_optimal_route(
     for i in range(1, len(locations)):
         node_index = manager.NodeToIndex(i)
         visit_val = locations[i]["visit_value"]
-        penalty = int(visit_val * 1000)
+        # Massive penalty to outweigh any potential travel cost, so the solver only drops a store if forced by the time limit.
+        penalty = int(visit_val * 1000000)
         routing.AddDisjunction([node_index], penalty)
 
     search_parameters = pywrapcp.DefaultRoutingSearchParameters()
