@@ -98,6 +98,7 @@ export const api = {
     request(includeInactive ? "/reps/?include_inactive=true" : "/reps/"),
   getRep: (repId) => request(`/reps/${repId}`),
   getRepDna: (repId) => request(`/reps/${repId}/dna`),
+  getRepPerformanceProfile: (repId) => request(`/reps/${repId}/performance-profile`),
   createRep: (repData) =>
     request("/reps/", {
       method: "POST",

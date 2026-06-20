@@ -269,6 +269,36 @@ class RepSummary(BaseModel):
     avg_visit_time_minutes: int
 
 
+class VisitHistoryItem(BaseModel):
+    store_id: int
+    store_name: str
+    store_type: str
+    visited_at: str
+    outcome: str
+    revenue: float
+    notes: str | None = None
+
+
+class StoreTypePerformance(BaseModel):
+    store_type: str
+    visits: int
+    success_rate_pct: int
+    total_revenue: float
+
+
+class RepPerformanceProfile(BaseModel):
+    rep_id: int
+    rep_name: str
+    dna: DnaProfile
+    insights: list[str]
+    top_store_type: str
+    top_store_type_pct: float
+    visit_summary: dict[str, Any]
+    store_type_breakdown: list[StoreTypePerformance]
+    recent_visits: list[VisitHistoryItem]
+    top_store_matches: list[dict[str, Any]]
+
+
 class RouteGenerateRequest(BaseModel):
     rep_id: int
     store_ids: list[int]

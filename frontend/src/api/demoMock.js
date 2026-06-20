@@ -259,6 +259,75 @@ export function getDemoMockResponse(path, options = {}) {
     };
   }
 
+  const perfMatch = path.match(/^\/reps\/(\d+)\/performance-profile$/);
+  if (perfMatch) {
+    const repId = Number(perfMatch[1]);
+    const rep = DEMO_REPS.find((r) => r.id === repId) || DEMO_REPS[0];
+    const rates = rep.dna_profile?.conversion_rates || {};
+    const topEntry = Object.entries(rates).sort((a, b) => b[1] - a[1])[0] || ["general", 0.5];
+    const stores = DEMO_STORES.map((store, idx) => {
+      const rate = rates[store.store_type] ?? 0.4;
+      return {
+        store_id: store.id,
+        store_name: store.name,
+        store_type: store.store_type,
+        fit_score: Math.round(rate * 100),
+        dna_match_pct: Math.round(rate * 100),
+        priority_label: "Good DNA match",
+        reason: `${Math.round(rate * 100)}% conversion at ${store.store_type}`,
+        historical_visits: idx % 3,
+        past_winner: idx % 4 === 0,
+        past_success_rate_pct: 80,
+        past_avg_revenue: Math.round(store.avg_order_value * rate),
+      };
+    }).sort((a, b) => b.fit_score - a.fit_score);
+    return {
+      data: {
+        rep_id: rep.id,
+        rep_name: rep.name,
+        dna: {
+          avg_visit_time_minutes: rep.avg_visit_time_minutes,
+          best_time_window_start: rep.best_time_window_start,
+          best_time_window_end: rep.best_time_window_end,
+          area_speed_factor: rep.area_speed_factor,
+          conversion_rates: rates,
+        },
+        insights: [
+          `${rep.name} converts best at ${topEntry[0]} stores (${Math.round(topEntry[1] * 100)}%)`,
+          `Average visit time: ${rep.avg_visit_time_minutes} minutes`,
+        ],
+        top_store_type: topEntry[0],
+        top_store_type_pct: Math.round(topEntry[1] * 100),
+        visit_summary: {
+          total_visits: 12 + rep.id * 3,
+          successful_visits: 9 + rep.id,
+          success_rate_pct: 72,
+          total_revenue: 420000 + rep.id * 50000,
+          avg_visit_time_minutes: rep.avg_visit_time_minutes,
+          area_speed_factor: rep.area_speed_factor,
+        },
+        store_type_breakdown: Object.entries(rates).map(([store_type, rate]) => ({
+          store_type,
+          visits: 3 + Math.round(rate * 10),
+          success_rate_pct: Math.round(rate * 100),
+          total_revenue: Math.round(rate * 120000),
+        })),
+        recent_visits: DEMO_STORES.slice(0, 5).map((store, idx) => ({
+          store_id: store.id,
+          store_name: store.name,
+          store_type: store.store_type,
+          visited_at: `2026-06-${10 + idx}T10:00:00`,
+          outcome: idx % 2 ? "order_placed" : "no_answer",
+          revenue: idx % 2 ? Math.round(store.avg_order_value * 0.5) : 0,
+          notes: idx % 2 ? "Demo visit from historical log" : "Owner unavailable",
+        })),
+        top_store_matches: stores.slice(0, 5),
+      },
+      error: null,
+      status: 200,
+    };
+  }
+
   if (path === "/routes/manager/war-room") {
     const board = buildDispatchBoard();
     const jitter = (demoTick % 5) * 2;

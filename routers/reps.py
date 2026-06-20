@@ -5,13 +5,37 @@ from sqlalchemy.orm import Session
 
 from auth import require_role, get_current_user
 from database import get_db
-from models import Rep, User
+from models import Rep, Store, User, VisitLog
+from rep_store_fit import compute_rep_store_fit, _is_success
 from schemas import (
     DnaProfile, RepOut, RepSummary, RepCreate, RepUpdate,
-    AutoTuneAnalysis, AutoTuneHistoricalData, AutoTuneRecommendations
+    AutoTuneAnalysis, AutoTuneHistoricalData, AutoTuneRecommendations,
+    RepPerformanceProfile, VisitHistoryItem, StoreTypePerformance,
 )
 
 router = APIRouter(dependencies=[Depends(require_role("rep", "manager"))])
+
+
+def ensure_rep_access(current_user: User, rep_id: int):
+    if current_user.role == "rep" and current_user.rep_id != rep_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Cannot access another rep's data",
+        )
+
+
+def rep_dna_dict(rep: Rep) -> dict:
+    try:
+        raw_profile = json.loads(rep.dna_profile)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=500, detail="Invalid rep DNA profile") from exc
+    return {
+        "avg_visit_time_minutes": rep.avg_visit_time_minutes,
+        "best_time_window_start": rep.best_time_window_start,
+        "best_time_window_end": rep.best_time_window_end,
+        "area_speed_factor": rep.area_speed_factor,
+        "conversion_rates": raw_profile.get("conversion_rates", raw_profile),
+    }
 
 
 def format_hour(hour: int) -> str:
@@ -183,6 +207,118 @@ def read_rep_dna(rep_id: int, db: Session = Depends(get_db)):
         "dna": dna,
         "insights": insights,
     }
+
+
+@router.get("/{rep_id}/performance-profile", response_model=RepPerformanceProfile)
+def read_rep_performance_profile(
+    rep_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    ensure_rep_access(current_user, rep_id)
+    rep = db.query(Rep).filter(Rep.id == rep_id).first()
+    if rep is None:
+        raise HTTPException(status_code=404, detail="Rep not found")
+
+    dna = parse_dna_profile(rep)
+    top_store_type, top_conversion_rate = max(
+        dna.conversion_rates.items(),
+        key=lambda item: item[1],
+    )
+    conversion_percent = round(top_conversion_rate * 100)
+    speed_delta_percent = round(abs(dna.area_speed_factor - 1.0) * 100)
+    speed_direction = "faster" if dna.area_speed_factor >= 1.0 else "slower"
+    window_for_sentence = format_time_window(
+        dna.best_time_window_start,
+        dna.best_time_window_end,
+        separator=" to ",
+    )
+    insights = [
+        (
+            f"{rep.name} converts {conversion_percent}% better at "
+            f"{top_store_type} stores - front-load these before "
+            f"{format_hour(dna.best_time_window_end)}"
+        ),
+        (
+            f"{rep.name} moves {speed_delta_percent}% {speed_direction} "
+            "than average through the area"
+        ),
+        f"Best deployment window: {window_for_sentence}",
+        f"Average visit time: {rep.avg_visit_time_minutes} minutes per store",
+    ]
+
+    stores = db.query(Store).filter(Store.is_active == True).all()
+    stores_by_id = {store.id: store for store in stores}
+    visit_logs = (
+        db.query(VisitLog)
+        .filter(VisitLog.rep_id == rep_id)
+        .order_by(VisitLog.visited_at.desc())
+        .all()
+    )
+
+    fit_data = compute_rep_store_fit(rep, rep_dna_dict(rep), stores, visit_logs)
+    type_stats: dict[str, dict] = {}
+    for log in visit_logs:
+        store = stores_by_id.get(log.store_id)
+        stype = store.store_type if store else "general"
+        bucket = type_stats.setdefault(stype, {"visits": 0, "wins": 0, "revenue": 0.0})
+        bucket["visits"] += 1
+        if _is_success(log.outcome, log.revenue):
+            bucket["wins"] += 1
+            bucket["revenue"] += log.revenue or 0
+
+    store_type_breakdown = [
+        StoreTypePerformance(
+            store_type=stype,
+            visits=stats["visits"],
+            success_rate_pct=round((stats["wins"] / stats["visits"]) * 100) if stats["visits"] else 0,
+            total_revenue=round(stats["revenue"], 2),
+        )
+        for stype, stats in sorted(type_stats.items(), key=lambda x: -x[1]["revenue"])
+    ]
+
+    successful = sum(1 for log in visit_logs if _is_success(log.outcome, log.revenue))
+    total_revenue = sum(log.revenue or 0 for log in visit_logs if _is_success(log.outcome, log.revenue))
+
+    recent_visits = []
+    for log in visit_logs[:15]:
+        store = stores_by_id.get(log.store_id)
+        recent_visits.append(
+            VisitHistoryItem(
+                store_id=log.store_id,
+                store_name=store.name if store else f"Store #{log.store_id}",
+                store_type=store.store_type if store else "general",
+                visited_at=log.visited_at,
+                outcome=log.outcome,
+                revenue=round(log.revenue or 0, 2),
+                notes=log.notes,
+            )
+        )
+
+    top_matches = [
+        item for item in fit_data["stores"]
+        if item.get("historical_visits", 0) > 0 or item.get("fit_score", 0) >= 55
+    ][:10]
+
+    return RepPerformanceProfile(
+        rep_id=rep.id,
+        rep_name=rep.name,
+        dna=dna,
+        insights=insights,
+        top_store_type=fit_data["top_store_type"],
+        top_store_type_pct=fit_data["top_store_type_pct"],
+        visit_summary={
+            "total_visits": len(visit_logs),
+            "successful_visits": successful,
+            "success_rate_pct": round((successful / len(visit_logs)) * 100) if visit_logs else 0,
+            "total_revenue": round(total_revenue, 2),
+            "avg_visit_time_minutes": rep.avg_visit_time_minutes,
+            "area_speed_factor": rep.area_speed_factor,
+        },
+        store_type_breakdown=store_type_breakdown,
+        recent_visits=recent_visits,
+        top_store_matches=top_matches,
+    )
 
 
 @router.get("/{rep_id}/auto-tune-analysis", response_model=AutoTuneAnalysis, dependencies=[Depends(require_role("manager"))])

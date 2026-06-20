@@ -15,6 +15,7 @@ import { useAuth } from "../auth/AuthContext";
 import { useToast } from "../context/ToastContext";
 import { DemoBadge, HelpFab } from "../components/DemoHelp";
 import { RepRoutePreviewPanel } from "../components/RepRoutePreview";
+import { RepPerformancePanel } from "../components/RepPerformancePanel";
 import { AppButton, AvatarCircle, EmptyState } from "../components/UI";
 import { SkeletonScreen } from "../components/Skeleton";
 import { theme } from "../theme/colors";
@@ -88,6 +89,7 @@ export default function RedistributeScreen() {
   const [showRebalance, setShowRebalance] = useState(false);
   const [showRoutePreview, setShowRoutePreview] = useState(false);
   const [showAssigned, setShowAssigned] = useState(false);
+  const [showPerformance, setShowPerformance] = useState(false);
   const [repFit, setRepFit] = useState(null);
   const [error, setError] = useState("");
 
@@ -421,6 +423,20 @@ export default function RedistributeScreen() {
               </Pressable>
             ) : null}
           </View>
+        ) : null}
+
+        {repFit && selectedRepId ? (
+          <>
+            <Pressable onPress={() => setShowPerformance((v) => !v)} style={styles.rebalanceToggle}>
+              <Ionicons name={showPerformance ? "chevron-up" : "chevron-down"} size={18} color={colors.primary} />
+              <Text style={styles.rebalanceToggleText}>
+                {selectedRep?.rep_name?.split(" ")[0]}&apos;s past visits & DNA history
+              </Text>
+            </Pressable>
+            {showPerformance ? (
+              <RepPerformancePanel repId={selectedRepId} variant="light" maxHeight={420} />
+            ) : null}
+          </>
         ) : null}
 
         <View style={styles.sectionHeaderRow}>

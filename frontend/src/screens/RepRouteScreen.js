@@ -24,6 +24,7 @@ import { DemoBadge, HelpFab } from "../components/DemoHelp";
 import { SkeletonScreen } from "../components/Skeleton";
 import { fonts } from "../theme/fonts";
 import { EmptyState } from "../components/UI";
+import { RepPerformancePanel } from "../components/RepPerformancePanel";
 import { USE_NATIVE_DRIVER } from "../utils/animation";
 
 const dashTheme = {
@@ -205,6 +206,7 @@ export default function RepRouteScreen() {
   const [location, setLocation] = useState(null);
   const [locationLoading, setLocationLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [showPerformance, setShowPerformance] = useState(false);
   const routeFade = useRef(new Animated.Value(0)).current;
 
   async function fetchDeviceLocation(forcePrompt = false) {
@@ -430,6 +432,26 @@ export default function RepRouteScreen() {
           </View>
         </Pressable>
 
+        {repId ? (
+          <>
+            <Pressable
+              onPress={() => setShowPerformance((v) => !v)}
+              style={styles.performanceToggle}
+            >
+              <Ionicons name="stats-chart" size={18} color={dashTheme.accent} />
+              <Text style={styles.performanceToggleText}>My past visits & DNA strengths</Text>
+              <Ionicons
+                name={showPerformance ? "chevron-up" : "chevron-down"}
+                size={18}
+                color={dashTheme.textMuted}
+              />
+            </Pressable>
+            {showPerformance ? (
+              <RepPerformancePanel repId={repId} variant="dark" maxHeight={400} />
+            ) : null}
+          </>
+        ) : null}
+
         {route ? (
           <Animated.View style={{ opacity: routeFade }}>
             <View style={[styles.dashboardGrid, isDesktop && styles.dashboardGridDesktop]}>
@@ -651,6 +673,23 @@ const styles = StyleSheet.create({
   heroText: { color: '#FFF', fontFamily: fonts.bold, fontSize: 18 },
   heroSubtext: { color: 'rgba(255,255,255,0.85)', fontFamily: fonts.medium, fontSize: 12, marginTop: 2 },
   heroBannerSynced: { backgroundColor: dashTheme.success },
+  performanceToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: dashTheme.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: dashTheme.border,
+    padding: 12,
+    marginBottom: 16,
+  },
+  performanceToggleText: {
+    flex: 1,
+    color: dashTheme.textMain,
+    fontFamily: fonts.bold,
+    fontSize: 13,
+  },
   dashboardGrid: { flexDirection: 'column', gap: 24 },
   dashboardGridDesktop: { flexDirection: 'row', alignItems: 'flex-start' },
   leftColumn: { display: 'flex', gap: 24 },
